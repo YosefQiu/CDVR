@@ -1,10 +1,21 @@
 #include "Application.h"
-
+#include "Camera.hpp"
+#include "CameraController.h"
+#include <memory>
 
 
 int main()
 {
+	Camera* camera = new Camera(Camera::CameraMode::Ortho2D);
+	std::unique_ptr<CameraController> cameraController = std::make_unique<CameraController>(camera);
+
+	
+
+	// Initialize the application
 	Application app;
+	// Set the camera controller to the application
+	app.SetCameraController(std::move(cameraController));
+
 
     try {
         if (!app.Initialize(1280, 760, "LearnWebGPU")) {

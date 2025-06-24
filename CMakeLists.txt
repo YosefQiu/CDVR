@@ -45,7 +45,11 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 if (MSVC)
 	target_compile_options(${PROJECT_NAME} PRIVATE /W4)
 else()
-	target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -pedantic)
+	target_compile_options(${PROJECT_NAME} PRIVATE
+    -Wall -Wextra -pedantic -Werror
+    -Wunused-variable
+    -Wno-error=unused-parameter
+)
 endif()
 
 if (XCODE)

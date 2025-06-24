@@ -1,12 +1,10 @@
 #include "SparseDataVisualizer.h"
-#include <iostream>
-#include <fstream>  // 添加这个头文件
-#include <limits>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
+#include <webgpu/webgpu.hpp>
 
-SparseDataVisualizer::SparseDataVisualizer(wgpu::Device device, wgpu::Queue queue)
-    : m_device(device), m_queue(queue) {
+
+SparseDataVisualizer::SparseDataVisualizer(wgpu::Device device, wgpu::Queue queue, 
+                                           Camera* camera)
+    : m_device(device), m_queue(queue), m_camera(camera) {
 }
 
 SparseDataVisualizer::~SparseDataVisualizer() {
@@ -54,29 +52,12 @@ void SparseDataVisualizer::ComputeValueRange() {
 }
 
 
-void SparseDataVisualizer::UpdateUniforms(float aspectRatio) {
-    // 设置简单的正交投影
-    // 使用单位矩阵作为视图矩阵
-    float identity[16] = {
-        1, 0, 0, 0,
-        0, 1, 0, 0,
-        0, 0, 1, 0,
-        0, 0, 0, 1
-    };
-    
-    // 简单的正交投影矩阵
-    float ortho[16] = {
-        1.0f / aspectRatio, 0, 0, 0,
-        0, 1, 0, 0,
-        0, 0, 1, 0,
-        0, 0, 0, 1
-    };
-    
-    
-    
-    memcpy(m_uniforms.viewMatrix, identity, sizeof(float) * 16);
-    memcpy(m_uniforms.projMatrix, ortho, sizeof(float) * 16);
-    
+void SparseDataVisualizer::UpdateUniforms([[maybe_unused]]float aspectRatio) 
+{
+    m_camera->SetViewportSize(m_windowWidth, m_windowHeight);
+
+    m_uniforms.viewMatrix = m_camera->GetViewMatrix();
+    m_uniforms.projMatrix = m_camera->GetProjMatrix();
     // 确保其他 uniform 值已设置
     m_uniforms.gridWidth = static_cast<float>(m_header.width);
     m_uniforms.gridHeight = static_cast<float>(m_header.height);
@@ -122,245 +103,8 @@ void SparseDataVisualizer::OnWindowResize(int width, int height)
     UpdateUniforms(windowAspect);
 }
 
-void SparseDataVisualizer::CreatePipeline(wgpu::TextureFormat swapChainFormat) {
-    // 完整的稀疏数据可视化shader
-    const char* shaderSource = R"(
-struct Uniforms {
-    viewMatrix: mat4x4<f32>,
-    projMatrix: mat4x4<f32>,
-    gridWidth: f32,
-    gridHeight: f32,
-    minValue: f32,
-    maxValue: f32,
-}
-
-struct SparsePoint {
-    x: f32,
-    y: f32,
-    value: f32,
-    padding: f32,
-}
-
-@group(0) @binding(0) var<uniform> uniforms: Uniforms;
-@group(0) @binding(1) var<storage, read> sparsePoints: array<SparsePoint>;
-
-struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
-    @location(0) texCoords: vec2<f32>,
-}
-
-@vertex
-fn vs_main(@location(0) pos: vec2<f32>, @location(1) texCoords: vec2<f32>) -> VertexOutput {
-    var output: VertexOutput;
-    output.position = vec4<f32>(pos, 0.0, 1.0);
-    output.texCoords = texCoords;
-    return output;
-}
-
-// 最近邻插值
-fn findNearestValue(coord: vec2<f32>) -> f32 {
-    let numPoints = arrayLength(&sparsePoints);
-    var minDist = 999999.0;
-    var nearestValue = 0.0;
-    
-    for (var i = 0u; i < numPoints; i = i + 1u) {
-        let point = sparsePoints[i];
-        let dist = distance(coord, vec2<f32>(point.x, point.y));
-        if (dist < minDist) {
-            minDist = dist;
-            nearestValue = point.value;
-        }
-    }
-    
-    return nearestValue;
-}
-
-// 颜色映射函数 (coolwarm colormap)
-fn coolwarmColormap(t: f32) -> vec3<f32> {
-    let t_clamped = clamp(t, 0.0, 1.0);
-    
-    // 简化的coolwarm颜色映射
-    if (t_clamped < 0.5) {
-        // 蓝色到白色
-        let s = t_clamped * 2.0;
-        return mix(vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(1.0, 1.0, 1.0), s);
-    } else {
-        // 白色到红色
-        let s = (t_clamped - 0.5) * 2.0;
-        return mix(vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 0.0, 0.0), s);
-    }
-}
-
-@fragment
-fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    // 将纹理坐标转换为网格坐标
-    let gridCoord = vec2<f32>(
-        input.texCoords.x * uniforms.gridWidth,
-        input.texCoords.y * uniforms.gridHeight
-    );
-    
-    // 最近邻插值
-    let value = findNearestValue(gridCoord);
-    
-    // 归一化到[0,1]
-    let normalized = (value - uniforms.minValue) / 
-                     (uniforms.maxValue - uniforms.minValue);
-    
-    // 应用颜色映射
-    let color = coolwarmColormap(normalized);
-    
-    return vec4<f32>(color, 1.0);
-}
-)";
-
-    // 使用 C API
-    WGPUShaderModuleWGSLDescriptor wgslDescriptor = {};
-    wgslDescriptor.chain.next = nullptr;
-    wgslDescriptor.chain.sType = WGPUSType_ShaderModuleWGSLDescriptor;
-    wgslDescriptor.code = shaderSource;
-    
-    WGPUShaderModuleDescriptor descriptor = {};
-    descriptor.nextInChain = reinterpret_cast<const WGPUChainedStruct*>(&wgslDescriptor);
-    descriptor.label = "Sparse Data Shader";
-    
-    WGPUShaderModule shaderModule = wgpuDeviceCreateShaderModule(m_device, &descriptor);
-    
-    if (!shaderModule) {
-        std::cerr << "Failed to create shader module!" << std::endl;
-        return;
-    }
-    
-    std::cout << "Shader module created successfully" << std::endl;
-    
-    // 创建 bind group layout
-    wgpu::BindGroupLayoutEntry bindGroupLayoutEntries[2] = {};
-    
-    // Uniform buffer binding
-    bindGroupLayoutEntries[0].binding = 0;
-    bindGroupLayoutEntries[0].visibility = wgpu::ShaderStage::Vertex | wgpu::ShaderStage::Fragment;
-    bindGroupLayoutEntries[0].buffer.type = wgpu::BufferBindingType::Uniform;
-    bindGroupLayoutEntries[0].buffer.hasDynamicOffset = false;
-    bindGroupLayoutEntries[0].buffer.minBindingSize = 0;
-    
-    // Storage buffer binding
-    bindGroupLayoutEntries[1].binding = 1;
-    bindGroupLayoutEntries[1].visibility = wgpu::ShaderStage::Fragment;
-    bindGroupLayoutEntries[1].buffer.type = wgpu::BufferBindingType::ReadOnlyStorage;
-    bindGroupLayoutEntries[1].buffer.hasDynamicOffset = false;
-    bindGroupLayoutEntries[1].buffer.minBindingSize = 0;
-    
-    wgpu::BindGroupLayoutDescriptor bindGroupLayoutDesc = {};
-    bindGroupLayoutDesc.label = "Sparse Data Bind Group Layout";
-    bindGroupLayoutDesc.entryCount = 2;
-    bindGroupLayoutDesc.entries = bindGroupLayoutEntries;
-    
-    m_bindGroupLayout = m_device.createBindGroupLayout(bindGroupLayoutDesc);
-    
-    // 创建 bind group
-    wgpu::BindGroupEntry bindGroupEntries[2] = {};
-    
-    bindGroupEntries[0].binding = 0;
-    bindGroupEntries[0].buffer = m_uniformBuffer;
-    bindGroupEntries[0].offset = 0;
-    bindGroupEntries[0].size = sizeof(Uniforms);
-    
-    bindGroupEntries[1].binding = 1;
-    bindGroupEntries[1].buffer = m_storageBuffer;
-    bindGroupEntries[1].offset = 0;
-    bindGroupEntries[1].size = m_sparsePoints.size() * 16;  // 16 bytes per point (with padding)
-    
-    wgpu::BindGroupDescriptor bindGroupDesc = {};
-    bindGroupDesc.label = "Sparse Data Bind Group";
-    bindGroupDesc.layout = m_bindGroupLayout;
-    bindGroupDesc.entryCount = 2;
-    bindGroupDesc.entries = bindGroupEntries;
-    
-    m_bindGroup = m_device.createBindGroup(bindGroupDesc);
-    
-    // 创建顶点布局（位置 + 纹理坐标）
-    WGPUVertexAttribute vertexAttributes[2] = {};
-    vertexAttributes[0].format = WGPUVertexFormat_Float32x2;
-    vertexAttributes[0].offset = 0;
-    vertexAttributes[0].shaderLocation = 0;
-    
-    vertexAttributes[1].format = WGPUVertexFormat_Float32x2;
-    vertexAttributes[1].offset = 2 * sizeof(float);
-    vertexAttributes[1].shaderLocation = 1;
-    
-    WGPUVertexBufferLayout vertexBufferLayout = {};
-    vertexBufferLayout.arrayStride = 4 * sizeof(float);
-    vertexBufferLayout.stepMode = WGPUVertexStepMode_Vertex;
-    vertexBufferLayout.attributeCount = 2;
-    vertexBufferLayout.attributes = vertexAttributes;
-    
-    // Pipeline layout（使用 bind group layout）
-    wgpu::PipelineLayoutDescriptor layoutDesc = {};
-    layoutDesc.label = "Sparse Data Pipeline Layout";
-    layoutDesc.bindGroupLayoutCount = 1;
-    // 创建一个数组来存储 C API 指针
-    std::vector<WGPUBindGroupLayout> bindGroupLayouts = { m_bindGroupLayout };
-    layoutDesc.bindGroupLayouts = bindGroupLayouts.data();
-    wgpu::PipelineLayout pipelineLayout = m_device.createPipelineLayout(layoutDesc);
-    
-    // Render pipeline
-    WGPURenderPipelineDescriptor pipelineDesc = {};
-    pipelineDesc.label = "Simple Pipeline";
-    pipelineDesc.layout = pipelineLayout;
-    
-    // Vertex stage
-    pipelineDesc.vertex.module = shaderModule;
-    pipelineDesc.vertex.entryPoint = "vs_main";
-    pipelineDesc.vertex.bufferCount = 1;
-    pipelineDesc.vertex.buffers = &vertexBufferLayout;
-    
-    // Fragment stage
-    WGPUFragmentState fragmentState = {};
-    fragmentState.module = shaderModule;
-    fragmentState.entryPoint = "fs_main";
-    
-    WGPUColorTargetState colorTarget = {};
-    colorTarget.format = swapChainFormat;
-    colorTarget.writeMask = WGPUColorWriteMask_All;
-    
-    fragmentState.targetCount = 1;
-    fragmentState.targets = &colorTarget;
-    
-    pipelineDesc.fragment = &fragmentState;
-    
-    // Primitive state
-    pipelineDesc.primitive.topology = WGPUPrimitiveTopology_TriangleStrip;
-    pipelineDesc.primitive.stripIndexFormat = WGPUIndexFormat_Undefined;
-    pipelineDesc.primitive.frontFace = WGPUFrontFace_CCW;
-    pipelineDesc.primitive.cullMode = WGPUCullMode_None;
-    
-    // Depth stencil state
-    pipelineDesc.depthStencil = nullptr;
-    
-    // Multisample state
-    pipelineDesc.multisample.count = 1;
-    pipelineDesc.multisample.mask = ~0u;
-    pipelineDesc.multisample.alphaToCoverageEnabled = false;
-    
-    m_pipeline = wgpuDeviceCreateRenderPipeline(m_device, &pipelineDesc);
-    
-    if (!m_pipeline) {
-        std::cerr << "Failed to create render pipeline!" << std::endl;
-    } else {
-        std::cout << "Pipeline created successfully" << std::endl;
-    }
-    
-    // 清理
-    wgpuShaderModuleRelease(shaderModule);
-    wgpuPipelineLayoutRelease(pipelineLayout);
-}
-
-// 更新 CreateBuffers 恢复全屏四边形
-
-void SparseDataVisualizer::CreateBuffers(int windowWidth, int windowHeight) 
+void SparseDataVisualizer::CreateVBO(int windowWidth, int windowHeight)
 {
-    m_windowWidth = windowWidth;
-    m_windowHeight = windowHeight;
-
     // 计算正确的宽高比
     float dataAspect = static_cast<float>(m_header.width) / static_cast<float>(m_header.height);  // 150/450 = 0.333
     float windowAspect = static_cast<float>(windowWidth) / static_cast<float>(windowHeight);  // 约 1.68
@@ -396,7 +140,11 @@ void SparseDataVisualizer::CreateBuffers(int windowWidth, int windowHeight)
     std::cout << "Data aspect: " << dataAspect << ", Window aspect: " << windowAspect << std::endl;
     std::cout << "Scale: " << scaleX << " x " << scaleY << std::endl;
     
-    // 2. 创建存储缓冲，存放稀疏点数据
+
+}
+
+void SparseDataVisualizer::CreateSSBO()
+{
     if (!m_sparsePoints.empty()) {
         // 确保每个点是16字节对齐的
         struct AlignedSparsePoint {
@@ -422,8 +170,10 @@ void SparseDataVisualizer::CreateBuffers(int windowWidth, int windowHeight)
         
         std::cout << "Storage buffer created with " << m_sparsePoints.size() << " points" << std::endl;
     }
-    
-    // 3. 创建uniform缓冲
+}
+
+void SparseDataVisualizer::CreateUBO(float aspectRatio)
+{
     m_uniforms.gridWidth = static_cast<float>(m_header.width);
     m_uniforms.gridHeight = static_cast<float>(m_header.height);
     
@@ -432,9 +182,120 @@ void SparseDataVisualizer::CreateBuffers(int windowWidth, int windowHeight)
     uniformBufferDesc.usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst;
     m_uniformBuffer = m_device.createBuffer(uniformBufferDesc);
     
-    UpdateUniforms(windowAspect);  // 初始化uniforms
-    
+    UpdateUniforms(aspectRatio);  // 初始化 uniform 数据
+
     std::cout << "Uniform buffer created" << std::endl;
+}
+
+void SparseDataVisualizer::CreateBindGroupLayout()
+{
+    // 创建 bind group layout
+    wgpu::BindGroupLayoutEntry bindGroupLayoutEntries[2] = {};
+    
+    // Uniform buffer binding
+    bindGroupLayoutEntries[0].binding = 0;
+    bindGroupLayoutEntries[0].visibility = wgpu::ShaderStage::Vertex | wgpu::ShaderStage::Fragment;
+    bindGroupLayoutEntries[0].buffer.type = wgpu::BufferBindingType::Uniform;
+    bindGroupLayoutEntries[0].buffer.hasDynamicOffset = false;
+    bindGroupLayoutEntries[0].buffer.minBindingSize = 0;
+    
+    // Storage buffer binding
+    bindGroupLayoutEntries[1].binding = 1;
+    bindGroupLayoutEntries[1].visibility = wgpu::ShaderStage::Fragment;
+    bindGroupLayoutEntries[1].buffer.type = wgpu::BufferBindingType::ReadOnlyStorage;
+    bindGroupLayoutEntries[1].buffer.hasDynamicOffset = false;
+    bindGroupLayoutEntries[1].buffer.minBindingSize = 0;
+    
+    wgpu::BindGroupLayoutDescriptor bindGroupLayoutDesc = {};
+    bindGroupLayoutDesc.label = "Sparse Data Bind Group Layout";
+    bindGroupLayoutDesc.entryCount = 2;
+    bindGroupLayoutDesc.entries = bindGroupLayoutEntries;
+    m_bindGroupLayout = m_device.createBindGroupLayout(bindGroupLayoutDesc);
+}
+
+void SparseDataVisualizer::CreateBindGroup()
+{
+    // 创建 bind group
+    wgpu::BindGroupEntry bindGroupEntries[2] = {};
+    
+    bindGroupEntries[0].binding = 0;
+    bindGroupEntries[0].buffer = m_uniformBuffer;
+    bindGroupEntries[0].offset = 0;
+    bindGroupEntries[0].size = sizeof(Uniforms);
+    
+    bindGroupEntries[1].binding = 1;
+    bindGroupEntries[1].buffer = m_storageBuffer;
+    bindGroupEntries[1].offset = 0;
+    bindGroupEntries[1].size = m_sparsePoints.size() * 16;  // 16 bytes per point (with padding)
+    
+    wgpu::BindGroupDescriptor bindGroupDesc = {};
+    bindGroupDesc.label = "Sparse Data Bind Group";
+    bindGroupDesc.layout = m_bindGroupLayout;
+    bindGroupDesc.entryCount = 2;
+    bindGroupDesc.entries = bindGroupEntries;
+    m_bindGroup = m_device.createBindGroup(bindGroupDesc);
+}
+
+wgpu::VertexBufferLayout SparseDataVisualizer::CreateVertexLayout()
+{
+    static wgpu::VertexAttribute vertexAttributes[2] = {};
+    vertexAttributes[0].format = wgpu::VertexFormat::Float32x2;
+    vertexAttributes[0].offset = 0;
+    vertexAttributes[0].shaderLocation = 0;
+
+    vertexAttributes[1].format = wgpu::VertexFormat::Float32x2;
+    vertexAttributes[1].offset = 2 * sizeof(float);
+    vertexAttributes[1].shaderLocation = 1;
+
+    wgpu::VertexBufferLayout vertexBufferLayout = {};
+    vertexBufferLayout.arrayStride = 4 * sizeof(float);
+    vertexBufferLayout.stepMode = wgpu::VertexStepMode::Vertex;
+    vertexBufferLayout.attributeCount = 2;
+    vertexBufferLayout.attributes = vertexAttributes;
+
+    return vertexBufferLayout;
+}
+
+void SparseDataVisualizer::CreatePipeline(wgpu::TextureFormat swapChainFormat) {
+
+    // 创建 bind group layout
+    CreateBindGroupLayout();
+    // 创建 bind group
+    CreateBindGroup();
+    
+    // 创建顶点布局（位置 + 纹理坐标）
+   wgpu::VertexBufferLayout vertexBufferLayout = CreateVertexLayout();
+    
+    // 创建着色器程序
+    m_shaderProgram = std::make_unique<WGSLShaderProgram>(m_device);
+    bool success = m_shaderProgram->LoadShaders("../shaders/sparse_data.vert.wgsl",
+                                                "../shaders/sparse_data.frag.wgsl");
+   if (!success) 
+   {
+       std::cerr << "Failed to load shaders!" << std::endl;
+       return;
+   }
+   m_shaderProgram->CreatePipeline(swapChainFormat, m_bindGroupLayout, vertexBufferLayout);
+   m_pipeline = m_shaderProgram->GetPipeline();
+}
+
+// CreateBuffers 
+void SparseDataVisualizer::CreateBuffers(int windowWidth, int windowHeight) 
+{
+
+    // 顶点缓冲 VBO
+    // 存储缓冲 SSBO
+    // uniform缓冲 UBO
+
+    m_windowWidth = windowWidth;
+    m_windowHeight = windowHeight;
+
+    // 1. 创建顶点缓冲，保持宽高比
+    CreateVBO(m_windowWidth, m_windowHeight);
+    // 2. 创建存储缓冲，存放稀疏点数据
+    CreateSSBO();
+    // 3. 创建uniform缓冲
+    CreateUBO(static_cast<float>(windowWidth) / static_cast<float>(windowHeight));
 }
 
 // 更新 Render 函数使用 bind group
@@ -445,6 +306,6 @@ void SparseDataVisualizer::Render(wgpu::RenderPassEncoder renderPass) {
     
     renderPass.setPipeline(m_pipeline);
     renderPass.setBindGroup(0, m_bindGroup, 0, nullptr);  // 设置 bind group
-    renderPass.setVertexBuffer(0, m_vertexBuffer, 0, 16 * sizeof(float));  // 4个顶点，每个4个float
+    renderPass.setVertexBuffer(0, m_vertexBuffer, 0, 4 * 4 * sizeof(float));  // 4个顶点，每个4个float
     renderPass.draw(4, 1, 0, 0);  // 4个顶点，三角形带
-}
+} 

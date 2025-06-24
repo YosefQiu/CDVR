@@ -1,8 +1,10 @@
 #pragma once
 #include "ggl.h"
 #include "SparseDataVisualizer.h"
-#include <webgpu/webgpu.hpp>
+#include "CameraController.h"
 #include <memory>
+#include <webgpu/webgpu.hpp>
+
 struct GLFWwindow;
 
 class Application
@@ -12,10 +14,17 @@ public:
     void Terminate();
     void MainLoop();
     bool IsRunning();
+    void SetCameraController(std::unique_ptr<CameraController> controller) { m_cameraController = std::move(controller); }
 private:
     void OnKey(int key, int scancode, int action, int mods);
+    void OnMouseMove(double xpos, double ypos);
+    void OnMouseButton(int button, int action, int mods);
+    void OnMouseScroll(double xoffset, double yoffset);
     void OnResize(int width, int height);
     static void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
+    static void CursorPosCallback(GLFWwindow* window, double xpos, double ypos);
+    static void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
+    static void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset);
     static void FramebufferResizeCallback(GLFWwindow* window, int width, int height);
     wgpu::TextureView GetNextSurfaceTextureView();
 private:
@@ -30,4 +39,5 @@ private:
     int m_width = 0;
     int m_height = 0;
     std::unique_ptr<SparseDataVisualizer> m_visualizer;
+    std::unique_ptr<CameraController> m_cameraController;
 };

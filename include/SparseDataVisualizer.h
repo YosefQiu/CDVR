@@ -1,11 +1,8 @@
 #pragma once
 #include <webgpu/webgpu.hpp>
-#include <webgpu/webgpu.h>  // 添加 C API 头文件
-#include <vector>
-#include <string>
-#include <fstream>
-#include <algorithm>
-#include <cmath>
+#include "WGSLShaderProgram.h"
+#include "Camera.hpp"
+
 
 struct SparsePoint {
     float x;
@@ -22,7 +19,7 @@ struct DataHeader {
 
 class SparseDataVisualizer {
 public:
-    SparseDataVisualizer(wgpu::Device device, wgpu::Queue queue);
+    SparseDataVisualizer(wgpu::Device device, wgpu::Queue queue, Camera* camera = new Camera(Camera::CameraMode::Ortho2D));
     ~SparseDataVisualizer();
 
     // 从二进制文件加载数据
@@ -39,6 +36,9 @@ public:
     void UpdateUniforms(float aspectRatio);
     void OnWindowResize(int width, int height);
 
+    // 设置 Camera
+    void SetCamera(Camera* camera) { m_camera = camera; }
+
 private:
     wgpu::Device m_device;
     wgpu::Queue m_queue;
@@ -46,11 +46,14 @@ private:
     int m_windowWidth = 0;
     int m_windowHeight = 0;
 
+    Camera* m_camera = nullptr; // 摄像机对象，用于视图变换
+
     // 数据
     std::vector<SparsePoint> m_sparsePoints;
     DataHeader m_header;
     
     // GPU资源
+    std::unique_ptr<WGSLShaderProgram> m_shaderProgram;
     wgpu::Buffer m_vertexBuffer = nullptr;
     wgpu::Buffer m_uniformBuffer = nullptr;
     wgpu::Buffer m_storageBuffer = nullptr;  // 存储稀疏点数据
@@ -59,18 +62,23 @@ private:
     wgpu::RenderPipeline m_pipeline = nullptr;
     
     // 统一变量
-    struct Uniforms {
-        float viewMatrix[16];
-        float projMatrix[16];
-        float gridWidth;
-        float gridHeight;
-        float minValue;
-        float maxValue;
+    struct Uniforms 
+    {
+        alignas(16) glm::mat4 viewMatrix = glm::mat4(1.0f);
+        alignas(16) glm::mat4 projMatrix = glm::mat4(1.0f);
+        alignas(4)  float gridWidth;
+        alignas(4)  float gridHeight;
+        alignas(4)  float minValue;
+        alignas(4)  float maxValue;
     };
     Uniforms m_uniforms;
     
     // 辅助函数
-    void CreateFullscreenQuad();
-    float FindNearestValue(float x, float y);
+    void CreateVBO(int windowWidth, int windowHeight);
+    void CreateSSBO();
+    void CreateUBO(float aspectRatio);
+    void CreateBindGroupLayout();
+    void CreateBindGroup();
+    wgpu::VertexBufferLayout CreateVertexLayout();
     void ComputeValueRange();
 };

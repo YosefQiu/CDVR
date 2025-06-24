@@ -3,9 +3,22 @@
 #include <iostream>
 #include <cassert>
 #include <vector>
+#include <string>
+#include <algorithm>
+#include <cmath>
+#include <iostream>
+#include <fstream>  
+#include <sstream>
+#include <limits>
 
 #include <GLFW/glfw3.h>
 #include <glfw3webgpu.h>
+
+
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/euler_angles.hpp>
 
 #ifdef __EMSCRIPTEN__
 #  include <emscripten.h>

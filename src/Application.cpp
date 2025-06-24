@@ -73,9 +73,8 @@ bool Application::Initialize(int width, int height, const char* title)
 
 	m_queue = m_device.getQueue();
 
-	// Configure the surface
+	// Configure the surface （默认的framebuffer）
 	wgpu::SurfaceConfiguration config = {};
-
 	// Configuration of the textures created for the underlying swap chain
 	config.width = width;
 	config.height = height;
@@ -96,7 +95,7 @@ bool Application::Initialize(int width, int height, const char* title)
 	// 添加可视化器初始化
 	try {
         // 创建可视化器
-        m_visualizer = std::make_unique<SparseDataVisualizer>(m_device, m_queue);
+        m_visualizer = std::make_unique<SparseDataVisualizer>(m_device, m_queue, m_cameraController->GetCamera());
         assert(m_visualizer);
         // 加载数据文件
         std::string dataPath = "pruned_simple_data.bin";  // 可以从命令行参数传入
@@ -104,10 +103,23 @@ bool Application::Initialize(int width, int height, const char* title)
             std::cerr << "Warning: Failed to load sparse data from " << dataPath << std::endl;
             m_visualizer.reset();  // 清空可视化器
         } else {
+			// 设置摄像机
+			if (m_cameraController)
+				m_visualizer->SetCamera(m_cameraController->GetCamera());
             // 创建GPU资源
             m_visualizer->CreateBuffers(m_width, m_height);
             m_visualizer->CreatePipeline(surfaceFormat);
-            std::cout << "Sparse data visualizer initialized successfully" << std::endl;
+            
+			// 重要：初始化相机视图！
+            float data_width = 150.0f;  // 从 visualizer 获取
+            float data_height = 450.0f;
+            Camera* camera = m_cameraController->GetCamera();
+            camera->SetOrtho(0.0f, data_width, 0.0f, data_height);
+            camera->SetPosition(glm::vec3(data_width/2, data_height/2, 1.0f));
+            camera->SetTarget(glm::vec3(data_width/2, data_height/2, 0.0f));
+            
+			m_visualizer->OnWindowResize(m_width, m_height);
+			std::cout << "Sparse data visualizer initialized successfully" << std::endl;
         }
     } catch (const std::exception& e) {
         std::cerr << "Error initializing visualizer: " << e.what() << std::endl;
@@ -120,7 +132,12 @@ bool Application::Initialize(int width, int height, const char* title)
 
 	glfwSetWindowUserPointer(m_window, this);
 	glfwSetKeyCallback(m_window, Application::KeyCallback);
+	glfwSetCursorPosCallback(m_window, Application::CursorPosCallback);
+	glfwSetMouseButtonCallback(m_window, Application::MouseButtonCallback);
+	glfwSetScrollCallback(m_window, Application::ScrollCallback);
 	glfwSetFramebufferSizeCallback(m_window, Application::FramebufferResizeCallback);
+	
+	std::cout << "Controller valid? " << (m_cameraController ? "YES" : "NO") << std::endl;
 	return true;
 }
 
@@ -149,6 +166,13 @@ void Application::MainLoop()
 
 
 	glfwPollEvents();
+	if (m_cameraController) {
+		m_cameraController->Update(1.0f / 60.0f);  // 或用 deltaTime
+	}
+	if (m_visualizer && m_cameraController) {
+		m_visualizer->SetCamera(m_cameraController->GetCamera());
+	}
+	
 
 	// Get the next target texture view
 	wgpu::TextureView targetView = GetNextSurfaceTextureView();
@@ -273,8 +297,45 @@ void Application::OnResize(int width, int height)
 void Application::KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
 	auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
-	if (app) {
+	if (app) 
+	{
 		app->OnKey(key, scancode, action, mods);
+		if (app->m_cameraController) 
+		{
+			app->m_cameraController->OnKeyPress(key, action);
+		}
+	}
+}
+
+void Application::CursorPosCallback(GLFWwindow* window, double xpos, double ypos)
+{
+	auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
+	if (app) 
+	{
+		if (app->m_cameraController) 
+		{
+			app->m_cameraController->OnMouseMove(xpos, ypos);
+		}
+	}
+}
+
+void Application::MouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
+{
+	auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
+	if (app) {
+		if (app->m_cameraController) {
+			app->m_cameraController->OnMouseButton(button, action, mods);
+		}
+	}
+}
+
+void Application::ScrollCallback(GLFWwindow* window, double xoffset, double yoffset)
+{
+	auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
+	if (app) {
+		if (app->m_cameraController) {
+			app->m_cameraController->OnMouseScroll(xoffset, yoffset);
+		}
 	}
 }
 
