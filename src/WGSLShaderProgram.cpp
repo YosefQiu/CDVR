@@ -104,3 +104,56 @@ void WGSLShaderProgram::CreatePipeline(wgpu::TextureFormat swapChainFormat,
     m_pipeline = m_device.createRenderPipeline(pipelineDesc);
 }
 
+bool WGSLShaderProgram::LoadComputeShader(const std::string& computeShaderPath)
+{
+    std::string computeShaderSource = LoadWGSLSource(computeShaderPath);
+    if (computeShaderSource.empty()) return false;
+
+    wgpu::ShaderModuleWGSLDescriptor csWGSLDesc = {};
+    csWGSLDesc.chain.sType = wgpu::SType::ShaderModuleWGSLDescriptor;
+    csWGSLDesc.chain.next = nullptr;
+    csWGSLDesc.code = computeShaderSource.c_str();
+
+    wgpu::ShaderModuleDescriptor csDesc = {};
+    csDesc.nextInChain = reinterpret_cast<const wgpu::ChainedStruct*>(&csWGSLDesc);
+    csDesc.label = "Compute Shader";
+    m_computeShader = m_device.createShaderModule(csDesc);
+
+    if (!m_computeShader) {
+        std::cerr << "Failed to create compute shader module." << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+void WGSLShaderProgram::CreateComputePipeline(const wgpu::BindGroupLayout& bindGroupLayout)
+{
+    if (!m_computeShader) {
+        std::cerr << "Compute shader not loaded." << std::endl;
+        return;
+    }
+    // Create pipeline layout
+    wgpu::PipelineLayoutDescriptor pipelineLayoutDesc = {};
+    pipelineLayoutDesc.label = "WGSL Compute Pipeline Layout";
+    pipelineLayoutDesc.bindGroupLayoutCount = 1;
+    WGPUBindGroupLayout rawLayout = bindGroupLayout;
+    pipelineLayoutDesc.bindGroupLayouts = &rawLayout;
+    wgpu::PipelineLayout pipelineLayout = m_device.createPipelineLayout(pipelineLayoutDesc);
+
+    // Set up compute stage
+    wgpu::ComputePipelineDescriptor computeDesc = {};
+    computeDesc.label = "WGSL Compute Pipeline";
+    computeDesc.layout = pipelineLayout;
+    computeDesc.compute.module = m_computeShader;
+    computeDesc.compute.entryPoint = "cs_main";
+    m_computePipeline = m_device.createComputePipeline(computeDesc);
+
+    if (!m_computePipeline) {
+        std::cerr << "Failed to create compute pipeline." << std::endl;
+        return;
+    }
+
+    std::cout << "Compute pipeline created successfully." << std::endl;
+}
+

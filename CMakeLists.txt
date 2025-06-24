@@ -49,6 +49,7 @@ else()
     -Wall -Wextra -pedantic -Werror
     -Wunused-variable
     -Wno-error=unused-parameter
+	-Wdelete-non-abstract-non-virtual-dtor
 )
 endif()
 

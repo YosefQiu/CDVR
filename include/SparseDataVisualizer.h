@@ -20,26 +20,26 @@ struct DataHeader {
 class SparseDataVisualizer {
 public:
     SparseDataVisualizer(wgpu::Device device, wgpu::Queue queue, Camera* camera = new Camera(Camera::CameraMode::Ortho2D));
-    ~SparseDataVisualizer();
+    virtual ~SparseDataVisualizer();
 
     // 从二进制文件加载数据
     bool LoadFromBinary(const std::string& filename);
     
     // 创建GPU资源
     void CreateBuffers(int widowWidth, int windowHeight);
-    void CreatePipeline(wgpu::TextureFormat swapChainFormat);
+    virtual void CreatePipeline(wgpu::TextureFormat swapChainFormat);
     
     // 渲染
-    void Render(wgpu::RenderPassEncoder renderPass);
+    virtual void Render(wgpu::RenderPassEncoder renderPass);
     
     // 更新视图矩阵等
     void UpdateUniforms(float aspectRatio);
-    void OnWindowResize(int width, int height);
+    virtual void OnWindowResize(int width, int height);
 
     // 设置 Camera
     void SetCamera(Camera* camera) { m_camera = camera; }
 
-private:
+protected:
     wgpu::Device m_device;
     wgpu::Queue m_queue;
     

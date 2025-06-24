@@ -1,5 +1,5 @@
 #include "Application.h"
-
+#include "ComputeOptimizedVisualizer.h"
 #include "GLFW/glfw3.h"
 #include "webgpu-utils.h"
 
@@ -95,8 +95,9 @@ bool Application::Initialize(int width, int height, const char* title)
 	// 添加可视化器初始化
 	try {
         // 创建可视化器
-        m_visualizer = std::make_unique<SparseDataVisualizer>(m_device, m_queue, m_cameraController->GetCamera());
-        assert(m_visualizer);
+        // m_visualizer = std::make_unique<SparseDataVisualizer>(m_device, m_queue, m_cameraController->GetCamera());
+        m_visualizer = std::make_unique<ComputeOptimizedVisualizer>(m_device, m_queue, m_cameraController->GetCamera()); 
+		assert(m_visualizer);
         // 加载数据文件
         std::string dataPath = "pruned_simple_data.bin";  // 可以从命令行参数传入
         if (!m_visualizer->LoadFromBinary(dataPath)) {
