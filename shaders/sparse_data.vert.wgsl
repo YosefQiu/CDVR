@@ -19,7 +19,8 @@ struct VertexOutput {
 @vertex
 fn vs_main(@location(0) pos: vec2<f32>, @location(1) texCoords: vec2<f32>) -> VertexOutput {
     var output: VertexOutput;
-    output.position = vec4<f32>(pos, 0.0, 1.0);
+    let world_pos = vec4<f32>(pos, 0.0, 1.0);
+    output.position = uniforms.projMatrix * uniforms.viewMatrix * world_pos;
     output.texCoords = texCoords;
     return output;
 }

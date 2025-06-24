@@ -37,14 +37,25 @@ public:
     void SetUp(const glm::vec3& up) { m_up = up; }
     void SetYawPitch(float yaw, float pitch) { m_yaw = yaw; m_pitch = pitch; }
 
-    void Zoom(float delta) {
-        if (m_mode == CameraMode::Ortho2D) {
-            float scale = 1.0f - delta * 0.1f;
-            m_orthoLeft *= scale;
-            m_orthoRight *= scale;
-            m_orthoBottom *= scale;
-            m_orthoTop *= scale;
-        } else {
+    void Zoom(float delta) 
+    {
+        if (m_mode == CameraMode::Ortho2D) 
+        {
+            // 2D 模式缩放
+            float zoomFactor = std::pow(1.1f, -delta);  // 控制缩放速度
+
+            float cx = (m_orthoLeft + m_orthoRight) * 0.5f;
+            float cy = (m_orthoBottom + m_orthoTop) * 0.5f;
+            float width = (m_orthoRight - m_orthoLeft) * zoomFactor;
+            float height = (m_orthoTop - m_orthoBottom) * zoomFactor;
+
+            m_orthoLeft   = cx - width * 0.5f;
+            m_orthoRight  = cx + width * 0.5f;
+            m_orthoBottom = cy - height * 0.5f;
+            m_orthoTop    = cy + height * 0.5f;
+        } 
+        else 
+        {
             m_radius -= delta;
             m_radius = glm::clamp(m_radius, 1.0f, 100.0f);
             m_fovY -= delta;
@@ -74,7 +85,13 @@ public:
     }
 
     glm::mat4 GetViewMatrix() const {
-        if (m_mode == CameraMode::Turntable3D) {
+        if (m_mode == CameraMode::Ortho2D) {
+            // 2D 模式的视图矩阵
+            // return glm::mat4(1.0f); 
+            // return glm::translate(glm::mat4(1.0f), -glm::vec3(m_position.x, m_position.y, 0.0f));
+            return glm::lookAt(m_position, m_target, m_up);
+        }
+        else if (m_mode == CameraMode::Turntable3D) {
             glm::vec3 offset;
             offset.x = m_radius * cos(glm::radians(m_pitch)) * sin(glm::radians(m_yaw));
             offset.y = m_radius * sin(glm::radians(m_pitch));
@@ -92,9 +109,16 @@ public:
         }
     }
 
-    glm::mat4 GetProjMatrix() const {
+    glm::mat4 GetProjMatrix() const 
+    {
         if (m_type == ProjectionType::Orthographic) {
-            return glm::ortho(m_orthoLeft, m_orthoRight, m_orthoBottom, m_orthoTop, m_near, m_far);
+            // 对于 2D 模式，使用 -1 到 1 的深度范围
+            if (m_mode == CameraMode::Ortho2D) {
+                return glm::ortho(m_orthoLeft, m_orthoRight, m_orthoBottom, m_orthoTop, -1.0f, 1.0f);
+            } else {
+                // 3D 正交投影使用正常的 near/far
+                return glm::ortho(m_orthoLeft, m_orthoRight, m_orthoBottom, m_orthoTop, m_near, m_far);
+            }
         } else {
             float aspect = static_cast<float>(m_viewportWidth) / m_viewportHeight;
             return glm::perspective(glm::radians(m_fovY), aspect, m_near, m_far);
@@ -108,6 +132,32 @@ public:
         m_orthoTop = top;
 
         UpdateProjectionMatrix();
+    }
+
+    void SetOrthoToFitContent(float contentWidth, float contentHeight, float windowAspect) 
+    {
+        float contentAspect = contentWidth / contentHeight;
+
+        float left, right, bottom, top;
+
+        if (windowAspect > contentAspect) {
+            // 窗口更宽，横向留白
+            float halfW = (contentHeight * windowAspect) / 2.0f;
+            left = contentWidth / 2.0f - halfW;
+            right = contentWidth / 2.0f + halfW;
+            bottom = 0.0f;
+            top = contentHeight;
+        } else {
+            // 窗口更高，纵向留白
+            float halfH = (contentWidth / windowAspect) / 2.0f;
+            left = 0.0f;
+            right = contentWidth;
+            bottom = contentHeight / 2.0f - halfH;
+            top = contentHeight / 2.0f + halfH;
+        }
+
+        // 注意：Y轴翻转（bottom/top顺序）匹配 WebGPU NDC
+        SetOrtho(left, right, bottom, top);
     }
 
     void SetPerspective(float fovYDegrees, float near, float far) {
@@ -146,6 +196,7 @@ private:
     float m_near, m_far;
     float m_orthoLeft, m_orthoRight, m_orthoBottom, m_orthoTop;
     glm::mat4 m_projMatrix = glm::mat4(1.0f); // Projection matrix
+    glm::mat4 m_viewMatrix = glm::mat4(1.0f); // View matrix
     int m_viewportWidth, m_viewportHeight;
 
     glm::vec3 GetForward() const { return glm::normalize(m_target - m_position); }

@@ -110,13 +110,14 @@ bool Application::Initialize(int width, int height, const char* title)
             m_visualizer->CreateBuffers(m_width, m_height);
             m_visualizer->CreatePipeline(surfaceFormat);
             
-			// 重要：初始化相机视图！
+			// 初始化相机视图！
             float data_width = 150.0f;  // 从 visualizer 获取
             float data_height = 450.0f;
             Camera* camera = m_cameraController->GetCamera();
-            camera->SetOrtho(0.0f, data_width, 0.0f, data_height);
-            camera->SetPosition(glm::vec3(data_width/2, data_height/2, 1.0f));
-            camera->SetTarget(glm::vec3(data_width/2, data_height/2, 0.0f));
+            camera->SetOrthoToFitContent(data_width, data_height, static_cast<float>(m_width) / static_cast<float>(m_height));
+			camera->SetPosition(glm::vec3(0.0f, 0.0f, 1.0f));  
+			camera->SetTarget(glm::vec3(0.0f, 0.0f, 0.0f));
+			camera->SetUp(glm::vec3(0.0f, 1.0f, 0.0f));
             
 			m_visualizer->OnWindowResize(m_width, m_height);
 			std::cout << "Sparse data visualizer initialized successfully" << std::endl;
@@ -126,10 +127,7 @@ bool Application::Initialize(int width, int height, const char* title)
         m_visualizer.reset();
     }
 	m_adapter = adapter;
-	// Release the adapter only after it has been fully utilized
-	// adapter.release();
-
-
+	
 	glfwSetWindowUserPointer(m_window, this);
 	glfwSetKeyCallback(m_window, Application::KeyCallback);
 	glfwSetCursorPosCallback(m_window, Application::CursorPosCallback);
@@ -323,7 +321,8 @@ void Application::MouseButtonCallback(GLFWwindow* window, int button, int action
 {
 	auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
 	if (app) {
-		if (app->m_cameraController) {
+		if (app->m_cameraController) 
+		{
 			app->m_cameraController->OnMouseButton(button, action, mods);
 		}
 	}

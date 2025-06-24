@@ -54,14 +54,19 @@ void SparseDataVisualizer::ComputeValueRange() {
 
 void SparseDataVisualizer::UpdateUniforms([[maybe_unused]]float aspectRatio) 
 {
+    // 使用相机系统
     m_camera->SetViewportSize(m_windowWidth, m_windowHeight);
-
-    m_uniforms.viewMatrix = m_camera->GetViewMatrix();
-    m_uniforms.projMatrix = m_camera->GetProjMatrix();
-    // 确保其他 uniform 值已设置
+    
+    // 从相机获取矩阵
+    glm::mat4 view = m_camera->GetViewMatrix();
+    glm::mat4 proj = m_camera->GetProjMatrix();
+    
+    // 转置矩阵（GLM是列主序，WGSL是行主序）
+    m_uniforms.viewMatrix = (view);
+    m_uniforms.projMatrix = (proj);
+    
     m_uniforms.gridWidth = static_cast<float>(m_header.width);
     m_uniforms.gridHeight = static_cast<float>(m_header.height);
-    // minValue 和 maxValue 已经在 ComputeValueRange() 中设置
     
     m_queue.writeBuffer(m_uniformBuffer, 0, &m_uniforms, sizeof(Uniforms));
 }
@@ -71,36 +76,11 @@ void SparseDataVisualizer::OnWindowResize(int width, int height)
     m_windowWidth = width;
     m_windowHeight = height;
     
-    float dataAspect = static_cast<float>(m_header.width) / static_cast<float>(m_header.height);
-    float windowAspect = static_cast<float>(m_windowWidth) / static_cast<float>(m_windowHeight);
-
-    float scaleX = 1.0f;
-    float scaleY = 1.0f;
+    // 保持相机视图不变，只更新视口大小
+    m_camera->SetViewportSize(width, height);
     
-    if (windowAspect > dataAspect) {
-        // 窗口更宽，需要在 X 方向上缩小
-        scaleX = dataAspect / windowAspect;
-    } else {
-        // 窗口更高，需要在 Y 方向上缩小
-        scaleY = windowAspect / dataAspect;
-    }
-    
-    // 更新顶点数据
-    float vertices[] = {
-        // positions                    // texCoords
-        -scaleX, -scaleY,              0.0f, 0.0f,
-         scaleX, -scaleY,              1.0f, 0.0f,
-        -scaleX,  scaleY,              0.0f, 1.0f,
-         scaleX,  scaleY,              1.0f, 1.0f,
-    };
-    
-    // 更新顶点缓冲
-    m_queue.writeBuffer(m_vertexBuffer, 0, vertices, sizeof(vertices));
-    
-    // std::cout << "Window resized to " << width << "x" << height << std::endl;
-    // std::cout << "Updated scale: " << scaleX << " x " << scaleY << std::endl;
     // 更新uniforms
-    UpdateUniforms(windowAspect);
+    UpdateUniforms(static_cast<float>(width) / static_cast<float>(height));
 }
 
 void SparseDataVisualizer::CreateVBO(int windowWidth, int windowHeight)
@@ -108,25 +88,19 @@ void SparseDataVisualizer::CreateVBO(int windowWidth, int windowHeight)
     // 计算正确的宽高比
     float dataAspect = static_cast<float>(m_header.width) / static_cast<float>(m_header.height);  // 150/450 = 0.333
     float windowAspect = static_cast<float>(windowWidth) / static_cast<float>(windowHeight);  // 约 1.68
-
-    float scaleX = 1.0f;
-    float scaleY = 1.0f;
+    float data_width = static_cast<float>(m_header.width);    // 150
+    float data_height = static_cast<float>(m_header.height);  // 450
     
-    if (windowAspect > dataAspect) {
-        // 窗口更宽，需要在 X 方向上缩小
-        scaleX = dataAspect / windowAspect;
-    } else {
-        // 窗口更高，需要在 Y 方向上缩小
-        scaleY = windowAspect / dataAspect;
-    }
+    
     
     // 1. 创建保持宽高比的四边形顶点
+    // 使用数据空间坐标
     float vertices[] = {
-        // positions                  // texCoords
-        -scaleX,    -scaleY,    0.0f,   0.0f,
-        scaleX,     -scaleY,    1.0f,   0.0f,
-        -scaleX,    scaleY,     0.0f,  1.0f,
-        scaleX,    scaleY,    1.0f,  1.0f,
+        // posX, posY,              u,    v
+        0.0f,        0.0f,         0.0f, 0.0f,  // 左下
+        data_width,  0.0f,         1.0f, 0.0f,  // 右下
+        0.0f,        data_height,  0.0f, 1.0f,  // 左上
+        data_width,  data_height,  1.0f, 1.0f,  // 右上
     };
     
     wgpu::BufferDescriptor vertexBufferDesc{};
@@ -138,8 +112,7 @@ void SparseDataVisualizer::CreateVBO(int windowWidth, int windowHeight)
     
     std::cout << "Vertex buffer created with aspect correction" << std::endl;
     std::cout << "Data aspect: " << dataAspect << ", Window aspect: " << windowAspect << std::endl;
-    std::cout << "Scale: " << scaleX << " x " << scaleY << std::endl;
-    
+   
 
 }
 
