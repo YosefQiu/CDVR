@@ -15,6 +15,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "")
 
 add_subdirectory(third/webgpu)
 add_subdirectory(third/glfw3webgpu)
+add_subdirectory(third/imgui)
 include_directories(third/glm)
 
 FILE(GLOB PROJECT_HEADERS include/*.h include/*.hpp)
@@ -32,7 +33,7 @@ ADD_EXECUTABLE(
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include)
-TARGET_LINK_LIBRARIES(${PROJECT_NAME} PRIVATE glfw webgpu glfw3webgpu)
+TARGET_LINK_LIBRARIES(${PROJECT_NAME} PRIVATE glfw webgpu glfw3webgpu imgui)
 target_copy_webgpu_binaries(${PROJECT_NAME})
 
 set_target_properties(${PROJECT_NAME} PROPERTIES

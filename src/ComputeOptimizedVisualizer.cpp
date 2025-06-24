@@ -153,7 +153,7 @@ void ComputeOptimizedVisualizer::CreateDataTexture()
     float dataAspectRatio = static_cast<float>(m_header.width) / m_header.height; // 150/450 = 0.333
     
     // 使用固定分辨率，保持数据宽高比
-    uint32_t baseSize = 512;
+    uint32_t baseSize = 1024;
     uint32_t textureWidth = baseSize;
     uint32_t textureHeight = static_cast<uint32_t>(baseSize / dataAspectRatio);
     

@@ -1,4 +1,5 @@
 #pragma once
+#include "ComputeOptimizedVisualizer.h"
 #include "ggl.h"
 #include "SparseDataVisualizer.h"
 #include "CameraController.h"
@@ -16,6 +17,9 @@ public:
     bool IsRunning();
     void SetCameraController(std::unique_ptr<CameraController> controller) { m_cameraController = std::move(controller); }
 private:
+    bool InitGui();
+    void TerminateGui();
+    void UpdateGui(wgpu::RenderPassEncoder renderPass);
     void OnKey(int key, int scancode, int action, int mods);
     void OnMouseMove(double xpos, double ypos);
     void OnMouseButton(int button, int action, int mods);
@@ -34,10 +38,16 @@ private:
     wgpu::Queue m_queue = nullptr;
     wgpu::Surface m_surface = nullptr;
     wgpu::Adapter m_adapter = nullptr;
+    wgpu::TextureFormat m_swapChainFormat = wgpu::TextureFormat::Undefined;
+    wgpu::TextureFormat m_depthTextureFormat = wgpu::TextureFormat::Undefined;
+
+    bool m_useCompute = true;
+
     std::unique_ptr<wgpu::ErrorCallback> uncapturedErrorCallbackHandle;
 private:
     int m_width = 0;
     int m_height = 0;
     std::unique_ptr<SparseDataVisualizer> m_visualizer;
+    std::unique_ptr<ComputeOptimizedVisualizer> m_computeVisualizer;
     std::unique_ptr<CameraController> m_cameraController;
 };

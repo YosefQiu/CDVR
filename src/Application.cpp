@@ -3,6 +3,11 @@
 #include "GLFW/glfw3.h"
 #include "webgpu-utils.h"
 
+#include <imgui.h>
+#include <backends/imgui_impl_wgpu.h>
+#include <backends/imgui_impl_glfw.h>
+#include <webgpu/webgpu.hpp>
+
 
 bool Application::Initialize(int width, int height, const char* title)
 {
@@ -20,6 +25,25 @@ bool Application::Initialize(int width, int height, const char* title)
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 	m_window = glfwCreateWindow(width, height, title, nullptr, nullptr);
+
+
+    // 详细检查窗口创建结果
+    int actualWidth, actualHeight;
+    int framebufferWidth, framebufferHeight;
+    float xscale, yscale;
+    
+    glfwGetWindowSize(m_window, &actualWidth, &actualHeight);
+    glfwGetFramebufferSize(m_window, &framebufferWidth, &framebufferHeight);
+    glfwGetWindowContentScale(m_window, &xscale, &yscale);
+    
+    std::cout << "=== Window Creation Debug ===" << std::endl;
+    std::cout << "Requested: " << width << "x" << height << std::endl;
+    std::cout << "Actual window: " << actualWidth << "x" << actualHeight << std::endl;
+    std::cout << "Framebuffer: " << framebufferWidth << "x" << framebufferHeight << std::endl;
+    std::cout << "Content scale: " << xscale << "x" << yscale << std::endl;
+
+    m_width = framebufferWidth;   // 这是关键！
+    m_height = framebufferHeight;
 
 	m_instance = wgpuCreateInstance(nullptr);
 
@@ -76,11 +100,13 @@ bool Application::Initialize(int width, int height, const char* title)
 	// Configure the surface （默认的framebuffer）
 	wgpu::SurfaceConfiguration config = {};
 	// Configuration of the textures created for the underlying swap chain
-	config.width = width;
-	config.height = height;
+	config.width = m_width;
+	config.height = m_height;
 	config.usage = wgpu::TextureUsage::RenderAttachment;
 	wgpu::TextureFormat surfaceFormat = m_surface.getPreferredFormat(adapter);
 	config.format = surfaceFormat;
+
+	m_swapChainFormat = m_surface.getPreferredFormat(adapter);
 
 	// And we do not need any particular view format:
 	config.viewFormatCount = 0;
@@ -92,18 +118,20 @@ bool Application::Initialize(int width, int height, const char* title)
 	m_surface.configure(config);
 
 
-	// 添加可视化器初始化
+	// 添加可视化器初始化1
 	try {
         // 创建可视化器
-        // m_visualizer = std::make_unique<SparseDataVisualizer>(m_device, m_queue, m_cameraController->GetCamera());
-        m_visualizer = std::make_unique<ComputeOptimizedVisualizer>(m_device, m_queue, m_cameraController->GetCamera()); 
+        m_visualizer = std::make_unique<SparseDataVisualizer>(m_device, m_queue, m_cameraController->GetCamera());
+        
 		assert(m_visualizer);
         // 加载数据文件
         std::string dataPath = "pruned_simple_data.bin";  // 可以从命令行参数传入
         if (!m_visualizer->LoadFromBinary(dataPath)) {
             std::cerr << "Warning: Failed to load sparse data from " << dataPath << std::endl;
             m_visualizer.reset();  // 清空可视化器
-        } else {
+        } 
+        else 
+        {
 			// 设置摄像机
 			if (m_cameraController)
 				m_visualizer->SetCamera(m_cameraController->GetCamera());
@@ -127,6 +155,44 @@ bool Application::Initialize(int width, int height, const char* title)
         std::cerr << "Error initializing visualizer: " << e.what() << std::endl;
         m_visualizer.reset();
     }
+
+    // 添加可视化器初始化2
+	try {
+        // 创建可视化器
+        m_computeVisualizer = std::make_unique<ComputeOptimizedVisualizer>(m_device, m_queue, m_cameraController->GetCamera());
+
+		assert(m_computeVisualizer);
+        // 加载数据文件
+        std::string dataPath = "pruned_simple_data.bin";  // 可以从命令行参数传入
+        if (!m_computeVisualizer->LoadFromBinary(dataPath)) {
+            std::cerr << "Warning: Failed to load sparse data from " << dataPath << std::endl;
+            m_computeVisualizer.reset();  // 清空可视化器
+        } 
+        else 
+        {
+			// 设置摄像机
+			if (m_cameraController)
+				m_computeVisualizer->SetCamera(m_cameraController->GetCamera());
+            // 创建GPU资源
+            m_computeVisualizer->CreateBuffers(m_width, m_height);
+            m_computeVisualizer->CreatePipeline(surfaceFormat);
+
+			// 初始化相机视图！
+            float data_width = 150.0f;  // 从 visualizer 获取
+            float data_height = 450.0f;
+            Camera* camera = m_cameraController->GetCamera();
+            camera->SetOrthoToFitContent(data_width, data_height, static_cast<float>(m_width) / static_cast<float>(m_height));
+			camera->SetPosition(glm::vec3(0.0f, 0.0f, 1.0f));  
+			camera->SetTarget(glm::vec3(0.0f, 0.0f, 0.0f));
+			camera->SetUp(glm::vec3(0.0f, 1.0f, 0.0f));
+
+			m_computeVisualizer->OnWindowResize(m_width, m_height);
+			std::cout << "Compute optimized visualizer initialized successfully" << std::endl;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Error initializing visualizer: " << e.what() << std::endl;
+        m_computeVisualizer.reset();
+    }
 	m_adapter = adapter;
 	
 	glfwSetWindowUserPointer(m_window, this);
@@ -136,7 +202,8 @@ bool Application::Initialize(int width, int height, const char* title)
 	glfwSetScrollCallback(m_window, Application::ScrollCallback);
 	glfwSetFramebufferSizeCallback(m_window, Application::FramebufferResizeCallback);
 	
-	std::cout << "Controller valid? " << (m_cameraController ? "YES" : "NO") << std::endl;
+	if (!InitGui()) return false;
+
 	return true;
 }
 
@@ -146,6 +213,9 @@ void Application::Terminate()
 	m_queue.release();
 	m_surface.release();
 	m_device.release();
+
+	TerminateGui();
+
 	glfwDestroyWindow(m_window);
 	glfwTerminate();
 }
@@ -165,79 +235,144 @@ void Application::MainLoop()
 
 
 	glfwPollEvents();
-	if (m_cameraController) {
-		m_cameraController->Update(1.0f / 60.0f);  // 或用 deltaTime
-	}
-	if (m_visualizer && m_cameraController) {
-		m_visualizer->SetCamera(m_cameraController->GetCamera());
-	}
-	
+    if (m_cameraController) {
+        m_cameraController->Update(1.0f / 60.0f);
+    }
+    if (m_visualizer && m_cameraController) {
+        m_visualizer->SetCamera(m_cameraController->GetCamera());
+    }
 
-	// Get the next target texture view
-	wgpu::TextureView targetView = GetNextSurfaceTextureView();
-	if (!targetView) return;
+    wgpu::TextureView targetView = GetNextSurfaceTextureView();
+    if (!targetView) return;
 
-	// Create a command encoder for the draw call
-	wgpu::CommandEncoderDescriptor encoderDesc = {};
-	encoderDesc.label = "My command encoder";
-	wgpu::CommandEncoder encoder = wgpuDeviceCreateCommandEncoder(m_device, &encoderDesc);
+    wgpu::CommandEncoderDescriptor encoderDesc = {};
+    encoderDesc.label = "My command encoder";
+    wgpu::CommandEncoder encoder = wgpuDeviceCreateCommandEncoder(m_device, &encoderDesc);
 
-	// Create the render pass that clears the screen with our color
-	wgpu::RenderPassDescriptor renderPassDesc = {};
+    // ===== 第一个渲染通道：主要内容 =====
+    wgpu::RenderPassDescriptor renderPassDesc = {};
+    wgpu::RenderPassColorAttachment renderPassColorAttachment = {};
+    renderPassColorAttachment.view = targetView;
+    renderPassColorAttachment.resolveTarget = nullptr;
+    renderPassColorAttachment.loadOp = wgpu::LoadOp::Clear;
+    renderPassColorAttachment.storeOp = wgpu::StoreOp::Store;
 
-	// The attachment part of the render pass descriptor describes the target texture of the pass
-	wgpu::RenderPassColorAttachment renderPassColorAttachment = {};
-	renderPassColorAttachment.view = targetView;
-	renderPassColorAttachment.resolveTarget = nullptr;
-	renderPassColorAttachment.loadOp = wgpu::LoadOp::Clear;
-	renderPassColorAttachment.storeOp = wgpu::StoreOp::Store;
-	renderPassColorAttachment.clearValue = WGPUColor{ 0.0, 0.37, 0.54, 1.0 };
+    wgpu::Color clearColor;
+    if (m_useCompute && m_computeVisualizer) {
+        clearColor = wgpu::Color{ 0.0, 0.37, 0.54, 1.0 };  // 蓝绿色背景（Compute）
+    } else if (m_visualizer) {
+        clearColor = wgpu::Color{ 0.3, 0.3, 0.3, 1.0 };   // 深灰背景（Regular）
+    } else {
+        clearColor = wgpu::Color{ 0.1, 0.0, 0.0, 1.0 };   // 出错时背景（红色调）
+    }
+
+    renderPassColorAttachment.clearValue = clearColor;
+
+   
 #ifndef WEBGPU_BACKEND_WGPU
-	renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
-#endif // NOT WEBGPU_BACKEND_WGPU
+    renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+#endif
 
-	renderPassDesc.colorAttachmentCount = 1;
-	renderPassDesc.colorAttachments = &renderPassColorAttachment;
-	renderPassDesc.depthStencilAttachment = nullptr;
-	renderPassDesc.timestampWrites = nullptr;
+    renderPassDesc.colorAttachmentCount = 1;
+    renderPassDesc.colorAttachments = &renderPassColorAttachment;
+    renderPassDesc.depthStencilAttachment = nullptr;
+    renderPassDesc.timestampWrites = nullptr;
 
-	// Create the render pass and end it immediately (we only clear the screen but do not draw anything)
-	wgpu::RenderPassEncoder renderPass = encoder.beginRenderPass(renderPassDesc);
-	
-	// ===== 渲染可视化内容 =====
-	if (m_visualizer) {
-        // 更新uniforms（如果窗口大小改变了的话）
-        float aspectRatio = static_cast<float>(m_width) / static_cast<float>(m_height);
-        m_visualizer->UpdateUniforms(aspectRatio);
+    wgpu::RenderPassEncoder renderPass = encoder.beginRenderPass(renderPassDesc);
+    
+    // 重要：在主渲染通道开始时设置正确的viewport
+    // std::cout << "Setting main viewport to: " << m_width << "x" << m_height << std::endl;
+    renderPass.setViewport(0, 0, 
+                          static_cast<float>(m_width),   // 使用framebuffer尺寸
+                          static_cast<float>(m_height),  // 使用framebuffer尺寸
+                          0.0f, 1.0f);
+
+    // 渲染可视化内容
+    if (m_useCompute && m_computeVisualizer) 
+    {
+        static bool printed = false;
+        if (!printed) {
+            std::cout << "Using compute optimized visualizer" << std::endl;
+            printed = true;
+        }
+
+        m_computeVisualizer->UpdateUniforms(static_cast<float>(m_width) / static_cast<float>(m_height));
+        m_computeVisualizer->Render(renderPass);
         
-        // 渲染
+    } 
+    else if (m_visualizer) 
+    {
+        static bool printed = false;
+        if (!printed) {
+            std::cout << "Using regular visualizer" << std::endl;
+            printed = true;
+        }
+
+        // 使用常规可视化器
+        m_visualizer->UpdateUniforms(static_cast<float>(m_width) / static_cast<float>(m_height));
         m_visualizer->Render(renderPass);
     } 
-	
-	renderPass.end();
-	renderPass.release();
+    else 
+    {
+        std::cerr << "No visualizer available to render!" << std::endl;
+    }
+    if (m_visualizer) 
+    {
+        float aspectRatio = static_cast<float>(m_width) / static_cast<float>(m_height);
+        m_visualizer->UpdateUniforms(aspectRatio);
+        m_visualizer->Render(renderPass);
+    } 
 
-	// Finally encode and submit the render pass
-	wgpu::CommandBufferDescriptor cmdBufferDescriptor = {};
-	cmdBufferDescriptor.label = "Command buffer";
-	wgpu::CommandBuffer command = encoder.finish(cmdBufferDescriptor);
-	encoder.release();
+    renderPass.end();
+    renderPass.release();
 
-	//std::cout << "Submitting command..." << std::endl;
-	m_queue.submit(1, &command);
-	command.release();
-	//std::cout << "Command submitted." << std::endl;
+    // ===== 第二个渲染通道：ImGui =====
+    wgpu::RenderPassColorAttachment imguiColorAttachment = {};
+    imguiColorAttachment.view = targetView;
+    imguiColorAttachment.resolveTarget = nullptr;
+    imguiColorAttachment.loadOp = wgpu::LoadOp::Load;
+    imguiColorAttachment.storeOp = wgpu::StoreOp::Store;
+    imguiColorAttachment.clearValue = WGPUColor{ 0.0, 0.37, 0.54, 1.0 };
+#ifndef WEBGPU_BACKEND_WGPU
+    imguiColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+#endif
 
-	// At the enc of the frame
-	targetView.release();
+    wgpu::RenderPassDescriptor imguiPassDesc = {};
+    imguiPassDesc.colorAttachmentCount = 1;
+    imguiPassDesc.colorAttachments = &imguiColorAttachment;
+    imguiPassDesc.depthStencilAttachment = nullptr;
+    imguiPassDesc.timestampWrites = nullptr;
+
+    wgpu::RenderPassEncoder imguiPass = encoder.beginRenderPass(imguiPassDesc);
+    
+    // ImGui也使用framebuffer尺寸设置viewport
+    // std::cout << "Setting ImGui viewport to: " << m_width << "x" << m_height << std::endl;
+    imguiPass.setViewport(0, 0, 
+                         static_cast<float>(m_width),   // 使用framebuffer尺寸
+                         static_cast<float>(m_height),  // 使用framebuffer尺寸
+                         0.0f, 1.0f);
+    
+    UpdateGui(imguiPass);
+    imguiPass.end();
+    imguiPass.release();
+
+    wgpu::CommandBufferDescriptor cmdBufferDescriptor = {};
+    cmdBufferDescriptor.label = "Command buffer";
+    wgpu::CommandBuffer command = encoder.finish(cmdBufferDescriptor);
+    encoder.release();
+
+    m_queue.submit(1, &command);
+    command.release();
+
+    targetView.release();
 #ifndef __EMSCRIPTEN__
-	m_surface.present();
+    m_surface.present();
 #endif
 
 #if defined(WEBGPU_BACKEND_DAWN)
-	m_device.tick();
+    m_device.tick();
 #elif defined(WEBGPU_BACKEND_WGPU)
-	m_device.poll(false);
+    m_device.poll(false);
 #endif
 }
 
@@ -264,17 +399,30 @@ void Application::OnKey(int key, [[maybe_unused]] int scancode, int action, [[ma
 
 void Application::OnResize(int width, int height)
 {
-	m_width = width;
-	m_height = height;
+    std::cout << "OnResize called with framebuffer size: " << width << "x" << height << std::endl;
+    
+    // 这里的参数已经是framebuffer尺寸了（因为你用的是FramebufferResizeCallback）
+    if (width <= 0 || height <= 0) {
+        return;
+    }
+    
+    // 检查是否真的需要重新配置
+    if (m_width == width && m_height == height) {
+        std::cout << "Size unchanged, skipping reconfigure" << std::endl;
+        return;
+    }
+    
+    m_width = width;   // 这已经是framebuffer尺寸
+    m_height = height;
 
-	// Update the surface configuration
-	wgpu::SurfaceConfiguration config = {};
-	config.width = width;
-	config.height = height;
-	config.usage = wgpu::TextureUsage::RenderAttachment;
+    // Update the surface configuration
+    wgpu::SurfaceConfiguration config = {};
+    config.width = width;    // 使用framebuffer尺寸
+    config.height = height;  // 使用framebuffer尺寸
+    config.usage = wgpu::TextureUsage::RenderAttachment;
     
     wgpu::RequestAdapterOptions adapterOpts = {};
-	adapterOpts.compatibleSurface = m_surface;
+    adapterOpts.compatibleSurface = m_surface;
     wgpu::TextureFormat surfaceFormat = m_surface.getPreferredFormat(m_adapter);
     config.format = surfaceFormat;
     
@@ -284,13 +432,28 @@ void Application::OnResize(int width, int height)
     config.presentMode = wgpu::PresentMode::Fifo;
     config.alphaMode = wgpu::CompositeAlphaMode::Auto;
     
+    std::cout << "Reconfiguring surface to: " << config.width << "x" << config.height << std::endl;
     m_surface.configure(config);
-    // adapter.release();
 
-	// 通知可视化器窗口大小变化
-	if (m_visualizer) {
-		m_visualizer->OnWindowResize(width, height);
-	}
+    // 通知可视化器窗口大小变化
+    if (m_visualizer) {
+        m_visualizer->OnWindowResize(width, height);  // 传递framebuffer尺寸
+    }
+
+    // ImGui配置需要窗口逻辑尺寸，不是framebuffer尺寸
+    int windowWidth, windowHeight;
+    glfwGetWindowSize(m_window, &windowWidth, &windowHeight);
+    
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(static_cast<float>(windowWidth), static_cast<float>(windowHeight)); // 窗口逻辑尺寸
+    
+    // 设置正确的缩放比例
+    float scaleX = static_cast<float>(width) / static_cast<float>(windowWidth);
+    float scaleY = static_cast<float>(height) / static_cast<float>(windowHeight);
+    io.DisplayFramebufferScale = ImVec2(scaleX, scaleY);
+    
+    std::cout << "ImGui DisplaySize: " << windowWidth << "x" << windowHeight << std::endl;
+    std::cout << "ImGui FramebufferScale: " << scaleX << "x" << scaleY << std::endl;
 }
 
 void Application::KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
@@ -375,4 +538,77 @@ wgpu::TextureView Application::GetNextSurfaceTextureView() {
 #endif // WEBGPU_BACKEND_WGPU
 
 	return targetView;
+}
+
+bool Application::InitGui() 
+{
+	// Setup Dear ImGui context
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGui::GetIO();
+
+	// Setup Platform/Renderer backends
+	ImGui_ImplGlfw_InitForOther(m_window, true);
+	ImGui_ImplWGPU_Init(m_device, 3, m_swapChainFormat, m_depthTextureFormat);
+	return true;
+}
+
+void Application::TerminateGui() 
+{
+	ImGui_ImplGlfw_Shutdown();
+	ImGui_ImplWGPU_Shutdown();
+}
+
+
+void Application::UpdateGui(wgpu::RenderPassEncoder renderPass) 
+{
+    // Start the Dear ImGui frame
+    ImGui_ImplWGPU_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+
+    // Build our UI
+    {
+        // static bool m_useCompute = true;
+        static bool show_demo_window = true;
+        // static bool show_another_window = false;
+
+        ImGui::Begin("Hello, world!");
+        // ImGui::Text("This is some useful text.");
+        ImGui::Checkbox("Demo Window", &show_demo_window);
+        // ImGui::Checkbox("Another Window", &show_another_window);
+        ImGui::Checkbox("Use Compute Shader", &m_useCompute);
+        static int mode = 0;
+        const char* items[] = { "Compute Shader", "Vertex+Fragment Shader" };
+        ImGui::Combo("Render Mode", &mode, items, IM_ARRAYSIZE(items));
+        m_useCompute = (mode == 0);
+
+    
+
+
+
+
+        ImGuiIO& io = ImGui::GetIO();
+        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+        ImGui::End();
+    }
+
+    // 渲染ImGui
+    ImGui::EndFrame();
+    ImGui::Render();
+
+    // 获取实际的framebuffer尺寸（处理高DPI）
+    int framebufferWidth, framebufferHeight;
+    glfwGetFramebufferSize(m_window, &framebufferWidth, &framebufferHeight);
+    
+    // 确保viewport尺寸正确且有效
+    if (framebufferWidth > 0 && framebufferHeight > 0) {
+        renderPass.setViewport(0, 0, 
+                              static_cast<float>(1280), 
+                              static_cast<float>(720), 
+                              0.0f, 1.0f);
+        
+        // 渲染ImGui绘制数据
+        ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), renderPass);
+    }
 }
