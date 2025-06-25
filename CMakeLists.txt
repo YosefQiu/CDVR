@@ -11,7 +11,7 @@ else()
 	target_link_options(glfw INTERFACE -sUSE_GLFW=3)
 endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Enable compile_commands.json")
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "") 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "")
 
 add_subdirectory(third/webgpu)
 add_subdirectory(third/glfw3webgpu)
@@ -21,14 +21,17 @@ include_directories(third/glm)
 FILE(GLOB PROJECT_HEADERS include/*.h include/*.hpp)
 FILE(GLOB PROJECT_SOURCES src/*.cpp)
 
+file(COPY ${CMAKE_SOURCE_DIR}/pruned_simple_data.bin DESTINATION ${CMAKE_BINARY_DIR})
+file(COPY ${CMAKE_SOURCE_DIR}/shaders                 DESTINATION ${CMAKE_BINARY_DIR})
+
 SOURCE_GROUP("Headers" FILES ${PROJECT_HEADERS})
 SOURCE_GROUP("Sources" FILES ${PROJECT_SOURCES})
 
 
 
 ADD_EXECUTABLE(
-    ${PROJECT_NAME} 
-    ${PROJECT_HEADERS} 
+    ${PROJECT_NAME}
+    ${PROJECT_HEADERS}
     ${PROJECT_SOURCES}
 )
 
@@ -63,5 +66,10 @@ endif()
 
 if (EMSCRIPTEN)
 	set_target_properties(${PROJECT_NAME} PROPERTIES SUFFIX ".html")
-	target_link_options(${PROJECT_NAME} PRIVATE -sASYNCIFY)
+    target_link_options(${PROJECT_NAME} PRIVATE
+        "-sASYNCIFY"
+        "-sFORCE_FILESYSTEM"
+        "--preload-file=pruned_simple_data.bin"
+        "--preload-file=shaders"
+    )
 endif()
