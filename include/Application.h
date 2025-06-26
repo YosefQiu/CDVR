@@ -26,6 +26,7 @@ private:
     void OnMouseScroll(double xoffset, double yoffset);
     void OnResize(int width, int height);
     void OnTransferFunctionChanged();
+    void UpdateRenderPipelineTransferFunction(wgpu::TextureView tfTextureView, wgpu::Sampler tfSampler);
     static void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
     static void CursorPosCallback(GLFWwindow* window, double xpos, double ypos);
     static void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
@@ -48,7 +49,6 @@ private:
 private:
     int m_width = 0;
     int m_height = 0;
-    std::unique_ptr<SparseDataVisualizer> m_visualizer;
     std::unique_ptr<ComputeOptimizedVisualizer> m_computeVisualizer;
     std::unique_ptr<CameraController> m_cameraController;
 };

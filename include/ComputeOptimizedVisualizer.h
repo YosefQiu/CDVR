@@ -17,11 +17,16 @@ public:
 
     void UpdateDataTexture();
     void UpdateComputeUniforms();
+    void UpdateTransferFunction(wgpu::TextureView tfTextureView, wgpu::Sampler tfSampler) {}
 private:
     // compute shader 相关
     wgpu::ComputePipeline m_computePipeline;
     wgpu::BindGroup m_computeBindGroup;
     wgpu::BindGroupLayout m_computeBindGroupLayout;
+
+    wgpu::BindGroupLayout m_transferFunctionBindGroupLayout;
+    wgpu::BindGroup m_transferFunctionBindGroup;
+    wgpu::PipelineLayout m_computePipelineLayout;
 
     // 数据纹理相关
     wgpu::Texture m_dataTexture;
@@ -52,5 +57,6 @@ private:
     void CreateComputeResources();
     void CreateDataTexture();
     void CreateSimplifiedRenderPipeline(wgpu::TextureFormat format);
+    
 
 };

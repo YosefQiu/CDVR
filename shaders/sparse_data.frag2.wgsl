@@ -18,5 +18,13 @@ struct VertexOutput {
 
 @fragment
 fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    return textureSample(dataTexture, dataSampler, uv);
+    // return textureSample(dataTexture, dataSampler, uv);
+    let sampledColor = textureSample(dataTexture, dataSampler, uv);
+    
+    // 如果采样结果是黑色/透明，显示蓝色作为指示
+    if (sampledColor.r == 0.0 && sampledColor.g == 0.0 && sampledColor.b == 0.0) {
+        return vec4<f32>(0.0, 0.0, 1.0, 1.0);  // 蓝色表示采样到黑色
+    }
+    
+    return sampledColor;  // 显示实际采样结果
 }

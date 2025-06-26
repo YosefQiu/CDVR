@@ -118,44 +118,6 @@ bool Application::Initialize(int width, int height, const char* title)
 	m_surface.configure(config);
 
 
-	// 添加可视化器初始化1
-	try {
-        // 创建可视化器
-        m_visualizer = std::make_unique<SparseDataVisualizer>(m_device, m_queue, m_cameraController->GetCamera());
-        
-		assert(m_visualizer);
-        // 加载数据文件
-        std::string dataPath = "pruned_simple_data.bin";  // 可以从命令行参数传入
-        if (!m_visualizer->LoadFromBinary(dataPath)) {
-            std::cerr << "Warning: Failed to load sparse data from " << dataPath << std::endl;
-            m_visualizer.reset();  // 清空可视化器
-        } 
-        else 
-        {
-			// 设置摄像机
-			if (m_cameraController)
-				m_visualizer->SetCamera(m_cameraController->GetCamera());
-            // 创建GPU资源
-            m_visualizer->CreateBuffers(m_width, m_height);
-            m_visualizer->CreatePipeline(surfaceFormat);
-            
-			// 初始化相机视图！
-            float data_width = 150.0f;  // 从 visualizer 获取
-            float data_height = 450.0f;
-            Camera* camera = m_cameraController->GetCamera();
-            camera->SetOrthoToFitContent(data_width, data_height, static_cast<float>(m_width) / static_cast<float>(m_height));
-			camera->SetPosition(glm::vec3(0.0f, 0.0f, 1.0f));  
-			camera->SetTarget(glm::vec3(0.0f, 0.0f, 0.0f));
-			camera->SetUp(glm::vec3(0.0f, 1.0f, 0.0f));
-            
-			m_visualizer->OnWindowResize(m_width, m_height);
-			std::cout << "Sparse data visualizer initialized successfully" << std::endl;
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "Error initializing visualizer: " << e.what() << std::endl;
-        m_visualizer.reset();
-    }
-
     // 添加可视化器初始化2
 	try {
         // 创建可视化器
@@ -238,8 +200,8 @@ void Application::MainLoop()
     if (m_cameraController) {
         m_cameraController->Update(1.0f / 60.0f);
     }
-    if (m_visualizer && m_cameraController) {
-        m_visualizer->SetCamera(m_cameraController->GetCamera());
+    if (m_computeVisualizer && m_cameraController) {
+        m_computeVisualizer->SetCamera(m_cameraController->GetCamera());
     }
 
     wgpu::TextureView targetView = GetNextSurfaceTextureView();
@@ -260,11 +222,8 @@ void Application::MainLoop()
     wgpu::Color clearColor;
     if (m_useCompute && m_computeVisualizer) {
         clearColor = wgpu::Color{ 0.0, 0.37, 0.54, 1.0 };  // 蓝绿色背景（Compute）
-    } else if (m_visualizer) {
-        clearColor = wgpu::Color{ 0.3, 0.3, 0.3, 1.0 };   // 深灰背景（Regular）
-    } else {
-        clearColor = wgpu::Color{ 0.1, 0.0, 0.0, 1.0 };   // 出错时背景（红色调）
-    }
+    } 
+   
 
     renderPassColorAttachment.clearValue = clearColor;
 
@@ -299,28 +258,6 @@ void Application::MainLoop()
         m_computeVisualizer->UpdateUniforms(static_cast<float>(m_width) / static_cast<float>(m_height));
         m_computeVisualizer->Render(renderPass);
         
-    } 
-    else if (m_visualizer) 
-    {
-        static bool printed = false;
-        if (!printed) {
-            std::cout << "Using regular visualizer" << std::endl;
-            printed = true;
-        }
-
-        // 使用常规可视化器
-        m_visualizer->UpdateUniforms(static_cast<float>(m_width) / static_cast<float>(m_height));
-        m_visualizer->Render(renderPass);
-    } 
-    else 
-    {
-        std::cerr << "No visualizer available to render!" << std::endl;
-    }
-    if (m_visualizer) 
-    {
-        float aspectRatio = static_cast<float>(m_width) / static_cast<float>(m_height);
-        m_visualizer->UpdateUniforms(aspectRatio);
-        m_visualizer->Render(renderPass);
     } 
 
     renderPass.end();
@@ -436,8 +373,8 @@ void Application::OnResize(int width, int height)
     m_surface.configure(config);
 
     // 通知可视化器窗口大小变化
-    if (m_visualizer) {
-        m_visualizer->OnWindowResize(width, height);  // 传递framebuffer尺寸
+    if (m_computeVisualizer) {
+        m_computeVisualizer->OnWindowResize(width, height);  // 传递framebuffer尺寸
     }
 
     // ImGui配置需要窗口逻辑尺寸，不是framebuffer尺寸
@@ -573,44 +510,62 @@ void Application::UpdateGui(wgpu::RenderPassEncoder renderPass)
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    // Build our UI
+    // Build our UI - 只有一个主窗口
     {
-        // static bool m_useCompute = true;
         static bool show_demo_window = true;
         static bool show_transfer_function = true;
-        // static bool show_another_window = false;
 
-        ImGui::Begin("Hello, world!");
-        // ImGui::Text("This is some useful text.");
+        // 窗口大小选项（选择一个）:
+        // 紧凑型：
+        // ImGui::SetNextWindowSize(ImVec2(350, 100), ImGuiCond_FirstUseEver);
+        
+        // 标准型（当前）:
+        // ImGui::SetNextWindowSize(ImVec2(400, 300), ImGuiCond_FirstUseEver);
+        
+        // 宽敞型：
+        // ImGui::SetNextWindowSize(ImVec2(500, 400), ImGuiCond_FirstUseEver);
+        
+        // 设置窗口位置（左上角）
+        // ImGui::SetNextWindowPos(ImVec2(20, 20), ImGuiCond_FirstUseEver);
+        
+        ImGui::Begin("Application Control Panel");
+        
+        // 基本控制
+        ImGui::Text("Render Settings");
+        ImGui::Separator();
+        
         ImGui::Checkbox("Demo Window", &show_demo_window);
-        // ImGui::Checkbox("Another Window", &show_another_window);
+        ImGui::Checkbox("Show Transfer Function", &show_transfer_function);
         ImGui::Checkbox("Use Compute Shader", &m_useCompute);
+        
         static int mode = 0;
         const char* items[] = { "Compute Shader", "Vertex+Fragment Shader" };
         ImGui::Combo("Render Mode", &mode, items, IM_ARRAYSIZE(items));
         m_useCompute = (mode == 0);
-
-
-        // 显示 Transfer Function Widget
+        
+        ImGui::Spacing();
+        ImGui::Separator();
+        
+        // 直接在这个窗口中显示 Transfer Function
         if (show_transfer_function && m_transferFunctionWidget) {
-            ImGui::Begin("Transfer Function", &show_transfer_function);
-            
-            // 绘制 Transfer Function UI
+            ImGui::Text("Transfer Function Controls");
             m_transferFunctionWidget->draw_ui();
             
             // 检查是否有变化
             if (m_transferFunctionWidget->changed()) {
                 // Transfer function 已更新，你可以在这里处理更新逻辑
-                // OnTransferFunctionChanged();
+                OnTransferFunctionChanged();
             }
-    
-            ImGui::End();
+            
+            ImGui::Spacing();
+            ImGui::Separator();
         }
-
-
-
+        
+        // 性能信息
         ImGuiIO& io = ImGui::GetIO();
-        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+        ImGui::Text("Performance");
+        ImGui::Text("Average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+        
         ImGui::End();
     }
 
@@ -621,30 +576,41 @@ void Application::UpdateGui(wgpu::RenderPassEncoder renderPass)
     // 获取实际的framebuffer尺寸（处理高DPI）
     int framebufferWidth, framebufferHeight;
     glfwGetFramebufferSize(m_window, &framebufferWidth, &framebufferHeight);
-    
+        
     // 确保viewport尺寸正确且有效
     if (framebufferWidth > 0 && framebufferHeight > 0) {
-        renderPass.setViewport(0, 0, 
-                              static_cast<float>(1280), 
-                              static_cast<float>(720), 
-                              0.0f, 1.0f);
-        
+        renderPass.setViewport(0, 0,
+                               static_cast<float>(framebufferWidth),  // 修复：使用实际framebuffer尺寸
+                               static_cast<float>(framebufferHeight), // 而不是硬编码的1280x720
+                               0.0f, 1.0f);
+                
         // 渲染ImGui绘制数据
         ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), renderPass);
     }
 }
 
 void Application::OnTransferFunctionChanged() {
-    // // 获取更新的颜色映射数据
-    // auto colormap = m_transferFunctionWidget->get_colormap();
+    // 获取更新的颜色映射数据
+    auto colormap = m_transferFunctionWidget->get_colormap();
     
-    // // 或者获取 WebGPU 纹理资源用于渲染
-    // wgpu::Texture tfTexture = m_transferFunctionWidget->get_webgpu_texture();
-    // wgpu::TextureView tfTextureView = m_transferFunctionWidget->get_webgpu_texture_view();
-    // wgpu::Sampler tfSampler = m_transferFunctionWidget->get_webgpu_sampler();
+    // 或者获取 WebGPU 纹理资源用于渲染
+    wgpu::Texture tfTexture = m_transferFunctionWidget->get_webgpu_texture();
+    wgpu::TextureView tfTextureView = m_transferFunctionWidget->get_webgpu_texture_view();
+    wgpu::Sampler tfSampler = m_transferFunctionWidget->get_webgpu_sampler();
     
-    // // 更新你的渲染管线中的 transfer function
-    // //UpdateRenderPipelineTransferFunction(tfTextureView, tfSampler);
+    // 更新你的渲染管线中的 transfer function
+    UpdateRenderPipelineTransferFunction(tfTextureView, tfSampler);
     
     // std::cout << "Transfer function updated!" << std::endl;
+}
+
+void Application::UpdateRenderPipelineTransferFunction(wgpu::TextureView tfTextureView, wgpu::Sampler tfSampler)
+{
+    //用户调整TF → Widget更新纹理 → 绑定到Shader → GPU实时查找颜色
+    if (m_computeVisualizer) {
+        m_computeVisualizer->UpdateTransferFunction(tfTextureView, tfSampler);
+        m_computeVisualizer->UpdateDataTexture();
+    }
+    
+    // std::cout << "Transfer function updated for compute visualization!" << std::endl;
 }

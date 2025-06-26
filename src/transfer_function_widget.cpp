@@ -648,8 +648,8 @@ void WebGPUTransferFunctionWidget::update_colormap()
         current_colormap[i * 4 + 3] = static_cast<uint8_t>(clamp(alpha * 255.f, 0.f, 255.f));
     }
     
-    std::cout << "Updated colormap: " << colormaps[selected_colormap].name 
-              << ", final size: " << current_colormap.size() << " bytes" << std::endl;
+    // std::cout << "Updated colormap: " << colormaps[selected_colormap].name 
+    //           << ", final size: " << current_colormap.size() << " bytes" << std::endl;
 }
 
 void WebGPUTransferFunctionWidget::load_embedded_preset(const uint8_t *buf,
