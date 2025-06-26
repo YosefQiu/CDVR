@@ -550,7 +550,13 @@ bool Application::InitGui()
 	// Setup Platform/Renderer backends
 	ImGui_ImplGlfw_InitForOther(m_window, true);
 	ImGui_ImplWGPU_Init(m_device, 3, m_swapChainFormat, m_depthTextureFormat);
-	return true;
+	
+    m_transferFunctionWidget = std::make_unique<tfnw::WebGPUTransferFunctionWidget>(
+        m_device,  // 假设你的 WebGPU device 存储在 m_device 中
+        m_queue
+    );
+    
+    return true;
 }
 
 void Application::TerminateGui() 
@@ -571,6 +577,7 @@ void Application::UpdateGui(wgpu::RenderPassEncoder renderPass)
     {
         // static bool m_useCompute = true;
         static bool show_demo_window = true;
+        static bool show_transfer_function = true;
         // static bool show_another_window = false;
 
         ImGui::Begin("Hello, world!");
@@ -583,8 +590,22 @@ void Application::UpdateGui(wgpu::RenderPassEncoder renderPass)
         ImGui::Combo("Render Mode", &mode, items, IM_ARRAYSIZE(items));
         m_useCompute = (mode == 0);
 
-    
 
+        // 显示 Transfer Function Widget
+        if (show_transfer_function && m_transferFunctionWidget) {
+            ImGui::Begin("Transfer Function", &show_transfer_function);
+            
+            // 绘制 Transfer Function UI
+            m_transferFunctionWidget->draw_ui();
+            
+            // 检查是否有变化
+            if (m_transferFunctionWidget->changed()) {
+                // Transfer function 已更新，你可以在这里处理更新逻辑
+                // OnTransferFunctionChanged();
+            }
+    
+            ImGui::End();
+        }
 
 
 
@@ -611,4 +632,19 @@ void Application::UpdateGui(wgpu::RenderPassEncoder renderPass)
         // 渲染ImGui绘制数据
         ImGui_ImplWGPU_RenderDrawData(ImGui::GetDrawData(), renderPass);
     }
+}
+
+void Application::OnTransferFunctionChanged() {
+    // // 获取更新的颜色映射数据
+    // auto colormap = m_transferFunctionWidget->get_colormap();
+    
+    // // 或者获取 WebGPU 纹理资源用于渲染
+    // wgpu::Texture tfTexture = m_transferFunctionWidget->get_webgpu_texture();
+    // wgpu::TextureView tfTextureView = m_transferFunctionWidget->get_webgpu_texture_view();
+    // wgpu::Sampler tfSampler = m_transferFunctionWidget->get_webgpu_sampler();
+    
+    // // 更新你的渲染管线中的 transfer function
+    // //UpdateRenderPipelineTransferFunction(tfTextureView, tfSampler);
+    
+    // std::cout << "Transfer function updated!" << std::endl;
 }

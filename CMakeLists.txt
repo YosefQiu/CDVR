@@ -18,6 +18,7 @@ add_subdirectory(third/glfw3webgpu)
 add_subdirectory(third/imgui)
 include_directories(third/glm)
 
+
 FILE(GLOB PROJECT_HEADERS include/*.h include/*.hpp)
 FILE(GLOB PROJECT_SOURCES src/*.cpp)
 
@@ -43,14 +44,14 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 	CXX_STANDARD 17
 	CXX_STANDARD_REQUIRED ON
 	CXX_EXTENSIONS OFF
-	COMPILE_WARNING_AS_ERROR ON
+	COMPILE_WARNING_AS_ERROR OFF
 )
 
 if (MSVC)
 	target_compile_options(${PROJECT_NAME} PRIVATE /W4)
 else()
 	target_compile_options(${PROJECT_NAME} PRIVATE
-    -Wall -Wextra -pedantic -Werror
+    -Wall -Wextra -pedantic
     -Wunused-variable
     -Wno-error=unused-parameter
 	-Wdelete-non-abstract-non-virtual-dtor

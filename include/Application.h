@@ -5,7 +5,7 @@
 #include "CameraController.h"
 #include <memory>
 #include <webgpu/webgpu.hpp>
-
+#include "transfer_function_widget.h"
 struct GLFWwindow;
 
 class Application
@@ -25,6 +25,7 @@ private:
     void OnMouseButton(int button, int action, int mods);
     void OnMouseScroll(double xoffset, double yoffset);
     void OnResize(int width, int height);
+    void OnTransferFunctionChanged();
     static void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
     static void CursorPosCallback(GLFWwindow* window, double xpos, double ypos);
     static void MouseButtonCallback(GLFWwindow* window, int button, int action, int mods);
@@ -42,7 +43,7 @@ private:
     wgpu::TextureFormat m_depthTextureFormat = wgpu::TextureFormat::Undefined;
 
     bool m_useCompute = true;
-
+    std::unique_ptr<tfnw::WebGPUTransferFunctionWidget> m_transferFunctionWidget;
     std::unique_ptr<wgpu::ErrorCallback> uncapturedErrorCallbackHandle;
 private:
     int m_width = 0;
