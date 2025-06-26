@@ -619,7 +619,9 @@ void Application::OnTransferFunctionChanged() {
     std::cout << "TextureView valid: " << (tfTextureView ? "YES" : "NO") << std::endl;
     std::cout << "===============================\n" << std::endl;
     
-    // 更新你的渲染管线中的 transfer function
+   
+
+    
     UpdateRenderPipelineTransferFunction(tfTextureView, tfSampler);
     
     // std::cout << "Transfer function updated!" << std::endl;

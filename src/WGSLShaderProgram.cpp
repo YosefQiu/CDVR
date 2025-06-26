@@ -136,7 +136,7 @@ void WGSLShaderProgram::CreateComputePipeline(const wgpu::BindGroupLayout& bindG
     // Create pipeline layout
     wgpu::PipelineLayoutDescriptor pipelineLayoutDesc = {};
     pipelineLayoutDesc.label = "WGSL Compute Pipeline Layout";
-    pipelineLayoutDesc.bindGroupLayoutCount = 1;
+    pipelineLayoutDesc.bindGroupLayoutCount = 2;
 
     WGPUBindGroupLayout raw = bindGroupLayout1;
 
@@ -144,7 +144,7 @@ void WGSLShaderProgram::CreateComputePipeline(const wgpu::BindGroupLayout& bindG
         static_cast<WGPUBindGroupLayout>(bindGroupLayout1),  // Group 0
         static_cast<WGPUBindGroupLayout>(bindGroupLayout2)   // Group 1
     };
-    pipelineLayoutDesc.bindGroupLayouts = &raw;
+    pipelineLayoutDesc.bindGroupLayouts = rawLayouts;
     wgpu::PipelineLayout pipelineLayout = m_device.createPipelineLayout(pipelineLayoutDesc);
 
     // Set up compute stage

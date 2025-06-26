@@ -33,6 +33,10 @@ private:
     wgpu::TextureView m_dataTextureView;
     wgpu::Sampler m_dataSampler;
 
+    // Transfer Function 相关
+    wgpu::Texture m_DefaultTFTexture;
+    wgpu::TextureView m_DefaultTFTextureView;
+
     // Compute Uniforms
     struct ComputeUniforms {
         float minValue;

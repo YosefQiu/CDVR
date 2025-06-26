@@ -10,7 +10,7 @@ void ComputeOptimizedVisualizer::CreatePipeline(wgpu::TextureFormat swapChainFor
     // 创建简化的渲染管线
     CreateSimplifiedRenderPipeline(swapChainFormat);
     
-    // 第一次更新纹理
+    UpdateTransferFunction(nullptr, nullptr);
     UpdateDataTexture();
 }
 
@@ -63,30 +63,34 @@ void ComputeOptimizedVisualizer::CreateComputeResources()
     computeLayoutDesc.entries = computeLayoutEntries.data();
     m_computeBindGroupLayout = m_device.createBindGroupLayout(computeLayoutDesc);
     
-    // // 4. 创建 Transfer Function Bind Group Layout (Group 1)
-    // std::vector<wgpu::BindGroupLayoutEntry> tfLayoutEntries(1);
+    // 4. 创建 Transfer Function Bind Group Layout (Group 1)
+    std::vector<wgpu::BindGroupLayoutEntry> tfLayoutEntries(1);
 
-    // tfLayoutEntries[0].binding = 0;
-    // tfLayoutEntries[0].visibility = wgpu::ShaderStage::Compute;
-    // tfLayoutEntries[0].texture.sampleType = wgpu::TextureSampleType::Float;
-    // tfLayoutEntries[0].texture.viewDimension = wgpu::TextureViewDimension::_2D;
-    // tfLayoutEntries[0].texture.multisampled = false;
-    // // 设置其他类型为未定义
-    // tfLayoutEntries[0].buffer.type = wgpu::BufferBindingType::Undefined;
-    // tfLayoutEntries[0].sampler.type = wgpu::SamplerBindingType::Undefined;
-    // tfLayoutEntries[0].storageTexture.access = wgpu::StorageTextureAccess::Undefined;
+    tfLayoutEntries[0].binding = 0;
+    tfLayoutEntries[0].visibility = wgpu::ShaderStage::Compute;
+    tfLayoutEntries[0].texture.sampleType = wgpu::TextureSampleType::Float;
+    tfLayoutEntries[0].texture.viewDimension = wgpu::TextureViewDimension::_2D;
+    tfLayoutEntries[0].texture.multisampled = false;
+    // 设置其他类型为未定义
+    tfLayoutEntries[0].buffer.type = wgpu::BufferBindingType::Undefined;
+    tfLayoutEntries[0].sampler.type = wgpu::SamplerBindingType::Undefined;
+    tfLayoutEntries[0].storageTexture.access = wgpu::StorageTextureAccess::Undefined;
 
-    // wgpu::BindGroupLayoutDescriptor tfLayoutDesc{};
-    // tfLayoutDesc.entryCount = tfLayoutEntries.size();
-    // tfLayoutDesc.entries = tfLayoutEntries.data();
-    // m_transferFunctionBindGroupLayout = m_device.createBindGroupLayout(tfLayoutDesc);
+    wgpu::BindGroupLayoutDescriptor tfLayoutDesc{};
+    tfLayoutDesc.entryCount = tfLayoutEntries.size();
+    tfLayoutDesc.entries = tfLayoutEntries.data();
+    m_transferFunctionBindGroupLayout = m_device.createBindGroupLayout(tfLayoutDesc);
 
 
     // 5. 使用 WGSLShaderProgram 创建 Compute Pipeline
     m_computeShaderProgram->CreateComputePipeline(m_computeBindGroupLayout, m_transferFunctionBindGroupLayout);
     m_computePipeline = m_computeShaderProgram->GetComputePipeline();
     
-    std::cout << "Compute pipeline created successfully using WGSLShaderProgram" << std::endl;
+    if (!m_computePipeline) {
+        std::cerr << "ERROR: GetComputePipeline returned null!" << std::endl;
+    } else {
+        std::cout << "✓ Pipeline created successfully" << std::endl;
+    }
 }
 
 // 修改 CreateSimplifiedRenderPipeline
@@ -246,6 +250,7 @@ void ComputeOptimizedVisualizer::UpdateDataTexture() {
     
     computePass.setPipeline(m_computePipeline);
     computePass.setBindGroup(0, m_computeBindGroup, 0, nullptr);
+    computePass.setBindGroup(1, m_transferFunctionBindGroup, 0, nullptr); // 设置 transfer function bind group
     
     // 计算工作组数量
     uint32_t textureWidth = m_dataTexture.getWidth();
@@ -285,49 +290,189 @@ void ComputeOptimizedVisualizer::OnWindowResize(int width, int height) {
     UpdateDataTexture();
 }
 
+
 void ComputeOptimizedVisualizer::UpdateTransferFunction(wgpu::TextureView tfTextureView, wgpu::Sampler tfSampler)
 {
-    // std::cout << "=== UpdateTransferFunction Debug ===" << std::endl;
+    std::cout << "=== UpdateTransferFunction Debug ===" << std::endl;
+
+    wgpu::TextureView activeTextureView;
+
+
+    // 如果传入了纹理视图和采样器，直接使用它们
+    if (tfTextureView)
+    {
+        std::cout << "Using provided transfer function texture view." << std::endl;
+        
+        // === 测试：创建全黄纹理 ===
+        std::cout << "🧪 Creating test yellow texture..." << std::endl;
+        
+        // 创建全黄色数据
+        const uint32_t testWidth = 256;
+        std::vector<uint8_t> yellowData(testWidth * 4);
+        for (uint32_t i = 0; i < testWidth; i++) {
+            yellowData[i * 4 + 0] = 255;  // R = 255
+            yellowData[i * 4 + 1] = 255;  // G = 255  
+            yellowData[i * 4 + 2] = 0;    // B = 0 (红+绿=黄)
+            yellowData[i * 4 + 3] = 255;  // A = 255
+        }
+        
+        // 创建测试纹理
+        wgpu::TextureDescriptor testTextureDesc{};
+        testTextureDesc.size = {testWidth, 1, 1};
+        testTextureDesc.mipLevelCount = 1;
+        testTextureDesc.sampleCount = 1;
+        testTextureDesc.dimension = wgpu::TextureDimension::_2D;
+        testTextureDesc.format = wgpu::TextureFormat::RGBA8Unorm;
+        testTextureDesc.usage = wgpu::TextureUsage::CopyDst | wgpu::TextureUsage::TextureBinding;
+        testTextureDesc.label = "Test Yellow Texture";
+        
+        wgpu::Texture testTexture = m_device.createTexture(testTextureDesc);
+        
+        // 上传黄色数据
+        wgpu::ImageCopyTexture imageCopy{};
+        imageCopy.texture = testTexture;
+        imageCopy.mipLevel = 0;
+        imageCopy.origin = {0, 0, 0};
+        imageCopy.aspect = wgpu::TextureAspect::All;
+        
+        wgpu::TextureDataLayout dataLayout{};
+        dataLayout.offset = 0;
+        dataLayout.bytesPerRow = testWidth * 4;
+        dataLayout.rowsPerImage = 1;
+        
+        m_queue.writeTexture(imageCopy, yellowData.data(), yellowData.size(),
+                            dataLayout, {testWidth, 1, 1});
+        
+        // 创建测试纹理视图
+        wgpu::TextureViewDescriptor testViewDesc{};
+        testViewDesc.format = wgpu::TextureFormat::RGBA8Unorm;
+        testViewDesc.dimension = wgpu::TextureViewDimension::_2D;
+        testViewDesc.baseMipLevel = 0;
+        testViewDesc.mipLevelCount = 1;
+        testViewDesc.baseArrayLayer = 0;
+        testViewDesc.arrayLayerCount = 1;
+        testViewDesc.label = "Test Yellow Texture View";
+        
+        wgpu::TextureView testTextureView = testTexture.createView(testViewDesc);
+        
+        std::cout << "✅ Test yellow texture created and uploaded" << std::endl;
+        std::cout << "   Using YELLOW texture instead of widget texture" << std::endl;
+        activeTextureView = testTextureView;  // 使用测试纹理视图
+    } 
+    else 
+    {
+        std::cout << "Creating simulated transfer function texture." << std::endl;
+        const uint32_t tfWidth = 256;
+        const uint32_t tfHeight = 1;
+
+        // 创建颜色数据
+        std::vector<uint8_t> colorData(tfWidth * tfHeight * 4);
+        for (uint32_t i = 0; i < tfWidth; i++) {
+            float t = static_cast<float>(i) / static_cast<float>(tfWidth - 1);
+            
+            uint8_t r, g, b, a = 255;
+            
+            // 简化的热力图：红->绿->蓝
+            if (t < 0.5f) {
+                r = 255;
+                g = static_cast<uint8_t>(t * 3.0f * 255);
+                b = 0;
+            } else if (t < 0.66f) {
+                r = static_cast<uint8_t>((0.66f - t) * 3.0f * 255);
+                g = 128;
+                b = static_cast<uint8_t>((t - 0.33f) * 3.0f * 255);
+            } else {
+                r = 0;
+                g = static_cast<uint8_t>((1.0f - t) * 3.0f * 255);
+                b = 255;
+            }
+            
+            uint32_t pixelIndex = i * 4;
+            colorData[pixelIndex + 0] = r;
+            colorData[pixelIndex + 1] = g;
+            colorData[pixelIndex + 2] = b;
+            colorData[pixelIndex + 3] = a;
+        }
+
+        // 创建纹理描述符
+        wgpu::TextureDescriptor tfTextureDesc{};
+        tfTextureDesc.size = {tfWidth, tfHeight, 1};
+        tfTextureDesc.mipLevelCount = 1;
+        tfTextureDesc.sampleCount = 1;
+        tfTextureDesc.dimension = wgpu::TextureDimension::_2D;
+        tfTextureDesc.format = wgpu::TextureFormat::RGBA8Unorm;
+        tfTextureDesc.usage = wgpu::TextureUsage::CopyDst | wgpu::TextureUsage::TextureBinding;
+        tfTextureDesc.label = "Simulated Transfer Function";
+
+        // *** 关键：保存为成员变量 ***
+        m_DefaultTFTexture = m_device.createTexture(tfTextureDesc);
+
+        // 上传数据
+        wgpu::ImageCopyTexture imageCopyTexture{};
+        imageCopyTexture.texture = m_DefaultTFTexture;
+        imageCopyTexture.mipLevel = 0;
+        imageCopyTexture.origin = {0, 0, 0};
+        imageCopyTexture.aspect = wgpu::TextureAspect::All;
+
+        wgpu::TextureDataLayout textureDataLayout{};
+        textureDataLayout.offset = 0;
+        textureDataLayout.bytesPerRow = tfWidth * 4;
+        textureDataLayout.rowsPerImage = tfHeight;
+
+        m_queue.writeTexture(imageCopyTexture, colorData.data(), colorData.size(), 
+                            textureDataLayout, {tfWidth, tfHeight, 1});
+
+        // 创建纹理视图
+        wgpu::TextureViewDescriptor tfViewDesc{};
+        tfViewDesc.format = wgpu::TextureFormat::RGBA8Unorm;
+        tfViewDesc.dimension = wgpu::TextureViewDimension::_2D;
+        tfViewDesc.baseMipLevel = 0;
+        tfViewDesc.mipLevelCount = 1;
+        tfViewDesc.baseArrayLayer = 0;
+        tfViewDesc.arrayLayerCount = 1;
+        tfViewDesc.label = "Default TF View";
+
+        m_DefaultTFTextureView = m_DefaultTFTexture.createView(tfViewDesc);
+
+        activeTextureView = m_DefaultTFTextureView; 
+    }
     
-    // // 检查 pipeline 是否还有效
-    // if (!m_computePipeline) {
-    //     std::cerr << "ERROR: Compute pipeline is null before TF update!" << std::endl;
-    //     return;
-    // }
     
-    // if (!tfTextureView) {
-    //     std::cerr << "ERROR: Transfer function texture view is null!" << std::endl;
-    //     return;
-    // }
+    // 检查布局是否有效
+    if (!m_transferFunctionBindGroupLayout) {
+        std::cerr << "ERROR: Transfer function bind group layout is null!" << std::endl;
+        return;
+    }
+
+    // 创建绑定组
+    m_transferFunctionBindGroup = nullptr; 
+    std::vector<wgpu::BindGroupEntry> tfEntries(1);
+    tfEntries[0].binding = 0;
+    tfEntries[0].textureView = activeTextureView;
+    tfEntries[0].buffer = nullptr;
+    tfEntries[0].sampler = nullptr;
+    tfEntries[0].offset = 0;
+    tfEntries[0].size = 0;
     
-    // // 创建新的 Transfer Function 绑定组
-    // std::vector<wgpu::BindGroupEntry> tfEntries(1);
-    // tfEntries[0].binding = 0;
-    // tfEntries[0].textureView = tfTextureView;
-    // tfEntries[0].buffer = nullptr;
-    // tfEntries[0].sampler = nullptr;
-    // tfEntries[0].offset = 0;
-    // tfEntries[0].size = 0;
+    wgpu::BindGroupDescriptor tfBindGroupDesc{};
+    tfBindGroupDesc.layout = m_transferFunctionBindGroupLayout;
+    tfBindGroupDesc.entryCount = tfEntries.size();
+    tfBindGroupDesc.entries = tfEntries.data();
+    tfBindGroupDesc.label = "Transfer Function Bind Group";
     
-    // wgpu::BindGroupDescriptor tfBindGroupDesc{};
-    // tfBindGroupDesc.layout = m_transferFunctionBindGroupLayout;
-    // tfBindGroupDesc.entryCount = tfEntries.size();
-    // tfBindGroupDesc.entries = tfEntries.data();
-    
-    // // 检查布局是否还有效
-    // if (!m_transferFunctionBindGroupLayout) {
-    //     std::cerr << "ERROR: Transfer function bind group layout is null!" << std::endl;
-    //     return;
-    // }
-    
+    m_transferFunctionBindGroup = m_device.createBindGroup(tfBindGroupDesc);
+
+    // auto oldBindGroup = m_transferFunctionBindGroup;
     // m_transferFunctionBindGroup = m_device.createBindGroup(tfBindGroupDesc);
     
-    // // 再次检查 pipeline
-    // if (!m_computePipeline) {
-    //     std::cerr << "ERROR: Compute pipeline became null after TF bind group creation!" << std::endl;
-    //     return;
+    // std::cout << "Old bind group pointer: " << (void*)oldBindGroup.Get() << std::endl;
+    // std::cout << "New bind group pointer: " << (void*)m_transferFunctionBindGroup.Get() << std::endl;
+    
+    // if (oldBindGroup.Get() == m_transferFunctionBindGroup.Get()) {
+    //     std::cout << "❌ ERROR: Bind group pointer didn't change!" << std::endl;
+    // } else {
+    //     std::cout << "✅ Bind group successfully updated" << std::endl;
     // }
     
-    // std::cout << "Transfer Function bind group updated successfully" << std::endl;
-    // std::cout << "=====================================\n" << std::endl;
+   
 }
