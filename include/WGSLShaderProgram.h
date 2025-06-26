@@ -12,7 +12,7 @@ public:
                                        const wgpu::VertexBufferLayout& vertexLayout);
     
     bool LoadComputeShader(const std::string& computeShaderPath);
-    void CreateComputePipeline(const wgpu::BindGroupLayout& bindGroupLayout);
+    void CreateComputePipeline(const wgpu::BindGroupLayout& bindGroupLayout1, const wgpu::BindGroupLayout& layout2);
     
     wgpu::ShaderModule GetVertexShader() const { return m_vertexShader; }
     wgpu::ShaderModule GetFragmentShader() const { return m_fragmentShader; }

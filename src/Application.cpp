@@ -597,6 +597,27 @@ void Application::OnTransferFunctionChanged() {
     wgpu::Texture tfTexture = m_transferFunctionWidget->get_webgpu_texture();
     wgpu::TextureView tfTextureView = m_transferFunctionWidget->get_webgpu_texture_view();
     wgpu::Sampler tfSampler = m_transferFunctionWidget->get_webgpu_sampler();
+
+    // 调试：检查 Transfer Function 数据
+    std::cout << "=== Transfer Function Debug ===" << std::endl;
+    std::cout << "Colormap size: " << colormap.size() << " bytes" << std::endl;
+    std::cout << "Expected size for 256x1 RGBA: " << (256 * 4) << " bytes" << std::endl;
+    
+    // 检查前几个颜色值
+    if (colormap.size() >= 12) {
+        std::cout << "First 3 colors (RGBA):" << std::endl;
+        for (int i = 0; i < 12; i += 4) {
+            std::cout << "  Color " << (i/4) << ": (" 
+                      << (int)colormap[i] << ", " 
+                      << (int)colormap[i+1] << ", " 
+                      << (int)colormap[i+2] << ", " 
+                      << (int)colormap[i+3] << ")" << std::endl;
+        }
+    }
+    
+    std::cout << "Texture valid: " << (tfTexture ? "YES" : "NO") << std::endl;
+    std::cout << "TextureView valid: " << (tfTextureView ? "YES" : "NO") << std::endl;
+    std::cout << "===============================\n" << std::endl;
     
     // 更新你的渲染管线中的 transfer function
     UpdateRenderPipelineTransferFunction(tfTextureView, tfSampler);

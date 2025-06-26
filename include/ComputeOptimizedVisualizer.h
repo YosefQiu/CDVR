@@ -17,7 +17,7 @@ public:
 
     void UpdateDataTexture();
     void UpdateComputeUniforms();
-    void UpdateTransferFunction(wgpu::TextureView tfTextureView, wgpu::Sampler tfSampler) {}
+    void UpdateTransferFunction(wgpu::TextureView tfTextureView, wgpu::Sampler tfSampler);
 private:
     // compute shader 相关
     wgpu::ComputePipeline m_computePipeline;

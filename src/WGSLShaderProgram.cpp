@@ -127,7 +127,7 @@ bool WGSLShaderProgram::LoadComputeShader(const std::string& computeShaderPath)
     return true;
 }
 
-void WGSLShaderProgram::CreateComputePipeline(const wgpu::BindGroupLayout& bindGroupLayout)
+void WGSLShaderProgram::CreateComputePipeline(const wgpu::BindGroupLayout& bindGroupLayout1, const wgpu::BindGroupLayout& bindGroupLayout2)
 {
     if (!m_computeShader) {
         std::cerr << "Compute shader not loaded." << std::endl;
@@ -137,8 +137,14 @@ void WGSLShaderProgram::CreateComputePipeline(const wgpu::BindGroupLayout& bindG
     wgpu::PipelineLayoutDescriptor pipelineLayoutDesc = {};
     pipelineLayoutDesc.label = "WGSL Compute Pipeline Layout";
     pipelineLayoutDesc.bindGroupLayoutCount = 1;
-    WGPUBindGroupLayout rawLayout = bindGroupLayout;
-    pipelineLayoutDesc.bindGroupLayouts = &rawLayout;
+
+    WGPUBindGroupLayout raw = bindGroupLayout1;
+
+    WGPUBindGroupLayout rawLayouts[2] = {
+        static_cast<WGPUBindGroupLayout>(bindGroupLayout1),  // Group 0
+        static_cast<WGPUBindGroupLayout>(bindGroupLayout2)   // Group 1
+    };
+    pipelineLayoutDesc.bindGroupLayouts = &raw;
     wgpu::PipelineLayout pipelineLayout = m_device.createPipelineLayout(pipelineLayoutDesc);
 
     // Set up compute stage

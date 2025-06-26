@@ -63,8 +63,27 @@ void ComputeOptimizedVisualizer::CreateComputeResources()
     computeLayoutDesc.entries = computeLayoutEntries.data();
     m_computeBindGroupLayout = m_device.createBindGroupLayout(computeLayoutDesc);
     
-    // 4. 使用 WGSLShaderProgram 创建 Compute Pipeline
-    m_computeShaderProgram->CreateComputePipeline(m_computeBindGroupLayout);
+    // // 4. 创建 Transfer Function Bind Group Layout (Group 1)
+    // std::vector<wgpu::BindGroupLayoutEntry> tfLayoutEntries(1);
+
+    // tfLayoutEntries[0].binding = 0;
+    // tfLayoutEntries[0].visibility = wgpu::ShaderStage::Compute;
+    // tfLayoutEntries[0].texture.sampleType = wgpu::TextureSampleType::Float;
+    // tfLayoutEntries[0].texture.viewDimension = wgpu::TextureViewDimension::_2D;
+    // tfLayoutEntries[0].texture.multisampled = false;
+    // // 设置其他类型为未定义
+    // tfLayoutEntries[0].buffer.type = wgpu::BufferBindingType::Undefined;
+    // tfLayoutEntries[0].sampler.type = wgpu::SamplerBindingType::Undefined;
+    // tfLayoutEntries[0].storageTexture.access = wgpu::StorageTextureAccess::Undefined;
+
+    // wgpu::BindGroupLayoutDescriptor tfLayoutDesc{};
+    // tfLayoutDesc.entryCount = tfLayoutEntries.size();
+    // tfLayoutDesc.entries = tfLayoutEntries.data();
+    // m_transferFunctionBindGroupLayout = m_device.createBindGroupLayout(tfLayoutDesc);
+
+
+    // 5. 使用 WGSLShaderProgram 创建 Compute Pipeline
+    m_computeShaderProgram->CreateComputePipeline(m_computeBindGroupLayout, m_transferFunctionBindGroupLayout);
     m_computePipeline = m_computeShaderProgram->GetComputePipeline();
     
     std::cout << "Compute pipeline created successfully using WGSLShaderProgram" << std::endl;
@@ -264,4 +283,51 @@ void ComputeOptimizedVisualizer::OnWindowResize(int width, int height) {
     // 重新创建纹理和相关资源
     CreateDataTexture();
     UpdateDataTexture();
+}
+
+void ComputeOptimizedVisualizer::UpdateTransferFunction(wgpu::TextureView tfTextureView, wgpu::Sampler tfSampler)
+{
+    // std::cout << "=== UpdateTransferFunction Debug ===" << std::endl;
+    
+    // // 检查 pipeline 是否还有效
+    // if (!m_computePipeline) {
+    //     std::cerr << "ERROR: Compute pipeline is null before TF update!" << std::endl;
+    //     return;
+    // }
+    
+    // if (!tfTextureView) {
+    //     std::cerr << "ERROR: Transfer function texture view is null!" << std::endl;
+    //     return;
+    // }
+    
+    // // 创建新的 Transfer Function 绑定组
+    // std::vector<wgpu::BindGroupEntry> tfEntries(1);
+    // tfEntries[0].binding = 0;
+    // tfEntries[0].textureView = tfTextureView;
+    // tfEntries[0].buffer = nullptr;
+    // tfEntries[0].sampler = nullptr;
+    // tfEntries[0].offset = 0;
+    // tfEntries[0].size = 0;
+    
+    // wgpu::BindGroupDescriptor tfBindGroupDesc{};
+    // tfBindGroupDesc.layout = m_transferFunctionBindGroupLayout;
+    // tfBindGroupDesc.entryCount = tfEntries.size();
+    // tfBindGroupDesc.entries = tfEntries.data();
+    
+    // // 检查布局是否还有效
+    // if (!m_transferFunctionBindGroupLayout) {
+    //     std::cerr << "ERROR: Transfer function bind group layout is null!" << std::endl;
+    //     return;
+    // }
+    
+    // m_transferFunctionBindGroup = m_device.createBindGroup(tfBindGroupDesc);
+    
+    // // 再次检查 pipeline
+    // if (!m_computePipeline) {
+    //     std::cerr << "ERROR: Compute pipeline became null after TF bind group creation!" << std::endl;
+    //     return;
+    // }
+    
+    // std::cout << "Transfer Function bind group updated successfully" << std::endl;
+    // std::cout << "=====================================\n" << std::endl;
 }
