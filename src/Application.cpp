@@ -8,6 +8,7 @@
 #include <imgui.h>
 #include <backends/imgui_impl_wgpu.h>
 #include <backends/imgui_impl_glfw.h>
+#include <iostream>
 #include <webgpu/webgpu.hpp>
 
 
@@ -165,15 +166,22 @@ void Application::MainLoop()
 
 	glfwPollEvents();
 
-    // 在渲染之前检查 Transfer Function 更新 
-    if (m_transferFunctionWidget->changed()) {
-        OnTransferFunctionChanged();
-    }
-
     if (m_cameraController) {
         m_cameraController->Update(1.0f / 60.0f);
     }
     
+    if (m_tfTest && m_transferFunctionWidget->changed()) {
+        wgpu::TextureView currentTFView = m_transferFunctionWidget->get_webgpu_texture_view();
+        if (currentTFView) {
+            m_tfTest->SetExternalTransferFunction(currentTFView);
+        }
+    }
+
+    // ===== 更新计算着色器（如果需要的话）=====
+    if (m_tfTest) {
+        m_tfTest->UpdateIfNeeded();
+    }
+
 
     wgpu::TextureView targetView = GetNextSurfaceTextureView();
     if (!targetView) return;
@@ -214,10 +222,14 @@ void Application::MainLoop()
                           static_cast<float>(m_height),  // 使用framebuffer尺寸
                           0.0f, 1.0f);
 
-    m_tfTest->Render(renderPass);
-
+    if (m_tfTest) {
+        m_tfTest->Render(renderPass);
+    }
+    
     
     UpdateGui(renderPass);
+
+    
 
     renderPass.end();
     renderPass.release();
