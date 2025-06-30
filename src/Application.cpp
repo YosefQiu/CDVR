@@ -43,20 +43,22 @@ void Application::MainLoop()
 
 	glfwPollEvents();
 
-    if (m_cameraController) {
+    if (m_cameraController) 
+    {
         m_cameraController->Update(1.0f / 60.0f);
+        auto vMat = m_cameraController->GetCamera()->GetViewMatrix();
+        auto pMat = m_cameraController->GetCamera()->GetProjMatrix();
+        if (m_tfTest) 
+        {
+            m_tfTest->UpdateUniforms(vMat, pMat);
+        }
     }
     
     if (m_tfTest && m_transferFunctionWidget->changed()) {
         wgpu::TextureView currentTFView = m_transferFunctionWidget->get_webgpu_texture_view();
         if (currentTFView) {
-            m_tfTest->SetExternalTransferFunction(currentTFView);
+            m_tfTest->UpdateSSBO(currentTFView);
         }
-    }
-
-    // ===== 更新计算着色器（如果需要的话）=====
-    if (m_tfTest) {
-        m_tfTest->UpdateIfNeeded();
     }
 
 
@@ -76,7 +78,7 @@ void Application::MainLoop()
     renderPassColorAttachment.storeOp = wgpu::StoreOp::Store;
 
     wgpu::Color clearColor;
-    clearColor = wgpu::Color{ 0.0, 0.37, 0.54, 1.0 };  // 蓝绿色背景（Compute）
+    clearColor = wgpu::Color{ 0.0, 0.0, 0.0, 1.0 };  // 蓝绿色背景（Compute）
 
     renderPassColorAttachment.clearValue = clearColor;
 
@@ -199,6 +201,13 @@ void Application::OnResize(int width, int height)
     config.alphaMode = wgpu::CompositeAlphaMode::Auto;
 
     m_surface.configure(config);
+
+    InitDepthBuffer();
+
+    m_cameraController->GetCamera()->SetViewportSize(width, height);
+    glm::mat4 viewMatrix = m_cameraController->GetCamera()->GetViewMatrix();
+    glm::mat4 projMatrix = m_cameraController->GetCamera()->GetProjMatrix();
+    m_tfTest->OnWindowResize(viewMatrix, projMatrix);
 
 
     // ImGui配置需要窗口逻辑尺寸，不是framebuffer尺寸
@@ -434,7 +443,7 @@ void Application::UpdateRenderPipelineTransferFunction(wgpu::TextureView tfTextu
 {
     //用户调整TF → Widget更新纹理 → 绑定到Shader → GPU实时查找颜色
    if (m_tfTest && tfTextureView) {
-        m_tfTest->SetExternalTransferFunction(tfTextureView);
+        m_tfTest->UpdateSSBO(tfTextureView);
     }
     
     // std::cout << "Transfer function updated for compute visualization!" << std::endl;
@@ -636,7 +645,7 @@ bool Application::InitDepthBuffer()
 	depthViewDesc.dimension = wgpu::TextureViewDimension::_2D;
 	depthViewDesc.format = m_depthTextureFormat;
     m_depthTextureView = m_depthTexture.createView();
-    std::cout << "Depth texture view: " << m_depthTextureView << std::endl;
+    // std::cout << "Depth texture view: " << m_depthTextureView << std::endl;
     
     return m_depthTextureView != nullptr;
 }
@@ -658,12 +667,20 @@ void Application::TerminateDepthBuffer()
 bool Application::InitCameraAndControl()
 {
     Camera* camera = new Camera(Camera::CameraMode::Ortho2D);
+    float data_width = 150.0f;  // 从 visualizer 获取
+    float data_height = 450.0f;
+    camera->SetOrthoToFitContent(data_width, data_height, static_cast<float>(m_width) / static_cast<float>(m_height));
+	camera->SetPosition(glm::vec3(0.0f, 0.0f, 1.0f));  
+	camera->SetTarget(glm::vec3(0.0f, 0.0f, 0.0f));
+	camera->SetUp(glm::vec3(0.0f, 1.0f, 0.0f));
     m_cameraController = std::make_unique<CameraController>(camera);
     if (!m_cameraController) {
         std::cerr << "[ERROR]::InitCameraAndControl() - Failed to create CameraController!" << std::endl;
         return false;
     }
     SetCameraController(std::move(m_cameraController));
+
+    
 
 
     return m_cameraController != nullptr;
@@ -679,7 +696,9 @@ void Application::TerminateCameraAndControl()
 bool Application::InitGeometry()
 {
     m_tfTest = std::make_unique<TransferFunctionTest>(m_device, m_queue, m_swapChainFormat);
-    m_tfTest->Initialize();
+    glm::mat4 viewMatrix = m_cameraController->GetCamera()->GetViewMatrix();
+    glm::mat4 projMatrix = m_cameraController->GetCamera()->GetProjMatrix();
+    m_tfTest->Initialize(viewMatrix, projMatrix);
     return m_tfTest != nullptr;
 }
 
