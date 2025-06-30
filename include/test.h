@@ -102,10 +102,3 @@ private:
     RenderStage m_renderStage;
     bool m_needsUpdate = false;
 };
-
-
-
-
-
-
-
