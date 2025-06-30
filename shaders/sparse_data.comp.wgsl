@@ -55,6 +55,25 @@ fn getColorFromTransferFunction(normalizedValue: f32) -> vec4<f32> {
     return vec4<f32>(tfColor.rgb, 1.0);  // 使用 RGB，忽略 Alpha
 }
 
+fn getColorFromTransferFunction2(normalizedValue: f32) -> vec4<f32> {
+    // 临时：读取第一个像素检查内容
+    let firstPixel = textureLoad(transferFunction, vec2<i32>(0, 0), 0);
+    
+    // 检查是否为黄色 (1.0, 1.0, 0.0, 1.0)
+    if (firstPixel.r > 0.9 && firstPixel.g > 0.9 && firstPixel.b < 0.1) {
+        // 读取到黄色，显示绿色作为确认
+        return vec4<f32>(0.0, 1.0, 0.0, 1.0);
+    }
+    
+    // 检查是否为默认的红色开始 (1.0, 0.0, 0.0, 1.0)
+    if (firstPixel.r > 0.9 && firstPixel.g < 0.1 && firstPixel.b < 0.1) {
+        // 读取到红色，显示蓝色作为确认
+        return vec4<f32>(0.0, 0.0, 1.0, 1.0);
+    }
+    
+    // 其他情况显示品红色
+    return vec4<f32>(firstPixel.rgb, 1.0);
+}
 
 @compute @workgroup_size(8, 8)
 fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -92,15 +111,18 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     var color = vec4<f32>(1.0, 0.0, 0.0, 1.0);
+    var normalized = 0.0;
+    // if (found) 
+    // {
+    //     normalized = clamp(
+    //         (nearestValue - uniforms.minValue) / (uniforms.maxValue - uniforms.minValue),
+    //         0.0, 1.0
+    //     );
+    //     // color = vec4<f32>(coolwarmColormap(normalized), 1.0);
+    //     color = getColorFromTransferFunction2(normalized);
+    // }
 
-    if (found) {
-        let normalized = clamp(
-            (nearestValue - uniforms.minValue) / (uniforms.maxValue - uniforms.minValue),
-            0.0, 1.0
-        );
-        // color = vec4<f32>(coolwarmColormap(normalized), 1.0);
-        color = getColorFromTransferFunction(normalized);
-    }
+    color = getColorFromTransferFunction2(normalized);
 
     textureStore(outputTexture, vec2<i32>(global_id.xy), color);
 }

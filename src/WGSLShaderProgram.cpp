@@ -26,7 +26,7 @@ bool WGSLShaderProgram::LoadShaders(const std::string& vertexShaderPath, const s
 
     if (vertexShaderSource.empty() || fragmentShaderSource.empty()) return false;
 
-   // Load vertex shader
+    // Load vertex shader
     wgpu::ShaderModuleWGSLDescriptor vsWGSLDesc = {};
     vsWGSLDesc.chain.sType = wgpu::SType::ShaderModuleWGSLDescriptor;
     vsWGSLDesc.chain.next = nullptr;

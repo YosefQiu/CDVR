@@ -6,6 +6,8 @@
 #include <memory>
 #include <webgpu/webgpu.hpp>
 #include "transfer_function_widget.h"
+
+#include "test.h"
 struct GLFWwindow;
 
 class Application
@@ -50,5 +52,6 @@ private:
     int m_width = 0;
     int m_height = 0;
     std::unique_ptr<ComputeOptimizedVisualizer> m_computeVisualizer;
+    std::unique_ptr<TransferFunctionTest> m_tfTest;
     std::unique_ptr<CameraController> m_cameraController;
 };

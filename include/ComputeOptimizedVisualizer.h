@@ -30,6 +30,7 @@ private:
 
     // 数据纹理相关
     wgpu::Texture m_dataTexture;
+    wgpu::Texture m_testTexture;
     wgpu::TextureView m_dataTextureView;
     wgpu::Sampler m_dataSampler;
 
