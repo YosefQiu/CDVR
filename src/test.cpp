@@ -32,12 +32,12 @@ bool TransferFunctionTest::Initialize(glm::mat4 vMat, glm::mat4 pMat)
 
     if (!InitDataFromBinary("./pruned_simple_data.bin")) return false;
     
-    m_uniforms.viewMatrix = vMat;
-    m_uniforms.projMatrix = pMat;
+    m_RS_Uniforms.viewMatrix = vMat;
+    m_RS_Uniforms.projMatrix = pMat;
 
     if (!InitSSBO()) return false;
     if (!m_computeStage.CreatePipeline(m_device)) return false;
-    if (!m_renderStage.Init(m_device, m_queue, m_uniforms)) return false;
+    if (!m_renderStage.Init(m_device, m_queue, m_RS_Uniforms)) return false;
     if (!m_renderStage.CreatePipeline(m_device, m_swapChainFormat)) return false;
     if (!m_renderStage.InitBindGroup(m_device, m_outputTextureView)) return false;
     
@@ -66,6 +66,13 @@ bool TransferFunctionTest::InitDataFromBinary(const std::string& filename)
               m_header.numPoints * sizeof(SparsePoint));
     
     file.close();
+
+    // 2. 创建 Compute Uniform Buffer
+
+    m_CS_Uniforms.gridWidth = static_cast<float>(m_header.width);
+    m_CS_Uniforms.gridHeight = static_cast<float>(m_header.height);
+    m_CS_Uniforms.numPoints = static_cast<uint32_t>(m_sparsePoints.size());
+    m_CS_Uniforms.searchRadius = 5.0f;
     
     // 计算值的范围（用于颜色映射）
     ComputeValueRange();
@@ -83,10 +90,9 @@ void TransferFunctionTest::ComputeValueRange()
         minValue = std::min(minValue, point.value);
         maxValue = std::max(maxValue, point.value);
     }
-
-    m_uniforms.minValue = minValue;
-    m_uniforms.maxValue = maxValue;
-    
+ 
+    m_CS_Uniforms.minValue = minValue;
+    m_CS_Uniforms.maxValue = maxValue;
     std::cout << "[TransferFunctionTest] Value range: [" << minValue << ", " << maxValue << "]" << std::endl;
 }
 
@@ -100,7 +106,7 @@ void TransferFunctionTest::UpdateSSBO(wgpu::TextureView tfTextureView)
     }
 
 
-    if (m_needsUpdate && m_computeStage.bindGroup && m_computeStage.pipeline) 
+    if (m_needsUpdate && m_computeStage.TF_bindGroup && m_computeStage.pipeline) 
     {
         m_needsUpdate = false;
         m_computeStage.RunCompute(m_device, m_queue);
@@ -127,7 +133,8 @@ bool TransferFunctionTest::InitSSBO()
     outputTextureDesc.dimension = wgpu::TextureDimension::_2D;
     outputTextureDesc.size = {512, 512, 1};
     outputTextureDesc.format = wgpu::TextureFormat::RGBA8Unorm;
-    outputTextureDesc.usage = wgpu::TextureUsage::StorageBinding | wgpu::TextureUsage::TextureBinding;
+     outputTextureDesc.usage = wgpu::TextureUsage::StorageBinding |     // 计算着色器写入
+                              wgpu::TextureUsage::TextureBinding;      // 渲染着色器读取
     outputTextureDesc.mipLevelCount = 1;
     outputTextureDesc.sampleCount = 1;
     outputTextureDesc.viewFormatCount = 0;
@@ -160,18 +167,19 @@ bool TransferFunctionTest::InitSSBO()
 
 void TransferFunctionTest::UpdateUniforms(glm::mat4 viewMatrix, glm::mat4 projMatrix)
 {
-    m_uniforms.viewMatrix = viewMatrix;
-    m_uniforms.projMatrix = projMatrix;
+    m_RS_Uniforms.viewMatrix = viewMatrix;
+    m_RS_Uniforms.projMatrix = projMatrix;
     
-   m_renderStage.UpdateUniforms(m_queue, m_uniforms);
+   m_renderStage.UpdateUniforms(m_queue, m_RS_Uniforms);
 }
 
 bool TransferFunctionTest::ComputeStage::CreatePipeline(wgpu::Device device) 
 {
 
     const char* computeShaderSource = R"(
-        @group(0) @binding(0) var inputTF: texture_2d<f32>;
-        @group(0) @binding(1) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+        @group(0) @binding(0) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+        @group(1) @binding(0) var inputTF: texture_2d<f32>;
+        
         
         @compute @workgroup_size(16, 16)
         fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -239,34 +247,62 @@ bool TransferFunctionTest::ComputeStage::UpdateBindGroup(wgpu::Device device, wg
     if (!inputTF || !pipeline) return false;
     
     // 释放旧的绑定组
-    if (bindGroup) 
+    if (data_bindGroup) 
     {
-        bindGroup.release();
-        bindGroup = nullptr;
+        data_bindGroup.release();
+        data_bindGroup = nullptr;
+    }
+    if (TF_bindGroup) 
+    {
+        TF_bindGroup.release();
+        TF_bindGroup = nullptr;
     }
     
     // 创建新的绑定组
-    wgpu::BindGroupEntry entries[2] = {};
-    entries[0].binding = 0;
-    entries[0].textureView = inputTF;
+    {
+        wgpu::BindGroupEntry entries[1] = {};
+        entries[0].binding = 0;
+        entries[0].textureView = outputTexture;
+        
+        wgpu::BindGroupDescriptor desc = {};
+        desc.label = "Compute Data Bind Group";
+        desc.layout = pipeline.getBindGroupLayout(0);
+        desc.entryCount = 1;
+        desc.entries = entries;
+        
+        data_bindGroup = device.createBindGroup(desc);
+        if (!data_bindGroup)
+        {
+            std::cout << "[ERROR] ComputeStage: Failed to create data bind group" << std::endl;
+            return false;
+        }
+    }
+
+    {
+        wgpu::BindGroupEntry entries[1] = {};
+        entries[0].binding = 0;
+        entries[0].textureView = inputTF;
+        
+        wgpu::BindGroupDescriptor desc = {};
+        desc.label = "Compute TF Bind Group";
+        desc.layout = pipeline.getBindGroupLayout(1);
+        desc.entryCount = 1;
+        desc.entries = entries;
+        
+        TF_bindGroup = device.createBindGroup(desc);
+        if (!TF_bindGroup)
+        {
+            std::cout << "[ERROR] ComputeStage: Failed to create TF bind group" << std::endl;
+            return false;
+        }
+    }
     
-    entries[1].binding = 1;
-    entries[1].textureView = outputTexture;
-    
-    wgpu::BindGroupDescriptor desc = {};
-    desc.label = "Compute Bind Group";
-    desc.layout = pipeline.getBindGroupLayout(0);
-    desc.entryCount = 2;
-    desc.entries = entries;
-    
-    bindGroup = device.createBindGroup(desc);
-    
-    return bindGroup != nullptr;
+    return true;
 }
 
 void TransferFunctionTest::ComputeStage::RunCompute(wgpu::Device device, wgpu::Queue queue) 
 {
-    if (!bindGroup || !pipeline) return;
+     if (!data_bindGroup || !TF_bindGroup || !pipeline) return;
     
     wgpu::CommandEncoderDescriptor encoderDesc = {};
     encoderDesc.label = "Compute Command Encoder";
@@ -277,7 +313,8 @@ void TransferFunctionTest::ComputeStage::RunCompute(wgpu::Device device, wgpu::Q
     wgpu::ComputePassEncoder computePass = encoder.beginComputePass(computePassDesc);
     
     computePass.setPipeline(pipeline);
-    computePass.setBindGroup(0, bindGroup, 0, nullptr);
+    computePass.setBindGroup(0, data_bindGroup, 0, nullptr);
+    computePass.setBindGroup(1, TF_bindGroup, 0, nullptr); 
     computePass.dispatchWorkgroups((512 + 15) / 16, (512 + 15) / 16, 1);
     
     computePass.end();
@@ -298,13 +335,17 @@ void TransferFunctionTest::ComputeStage::Release()
         pipeline.release();
         pipeline = nullptr;
     }
-    if (bindGroup) {
-        bindGroup.release();
-        bindGroup = nullptr;
+    if (data_bindGroup) {
+        data_bindGroup.release();
+        data_bindGroup = nullptr;
+    }
+    if (TF_bindGroup) {
+        TF_bindGroup.release();
+        TF_bindGroup = nullptr;
     }
 }
 
-bool TransferFunctionTest::RenderStage::Init(wgpu::Device device, wgpu::Queue queue, Uniforms uniforms)
+bool TransferFunctionTest::RenderStage::Init(wgpu::Device device, wgpu::Queue queue, RS_Uniforms uniforms)
 {
     if (!InitVBO(device, queue, 150.0, 450.0)) return false;
     if (!InitUBO(device, uniforms)) return false;
@@ -366,10 +407,10 @@ bool TransferFunctionTest::RenderStage::InitSampler(wgpu::Device device)
     return true;
 }
 
-bool TransferFunctionTest::RenderStage::InitUBO(wgpu::Device device, Uniforms uniforms)
+bool TransferFunctionTest::RenderStage::InitUBO(wgpu::Device device, RS_Uniforms uniforms)
 {
     wgpu::BufferDescriptor uniformBufferDesc{};
-    uniformBufferDesc.size = sizeof(Uniforms);
+    uniformBufferDesc.size = sizeof(RS_Uniforms);
     uniformBufferDesc.usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst;
     uniformBuffer = device.createBuffer(uniformBufferDesc);
     
@@ -377,9 +418,9 @@ bool TransferFunctionTest::RenderStage::InitUBO(wgpu::Device device, Uniforms un
     return true;
 }
 
-void TransferFunctionTest::RenderStage::UpdateUniforms(wgpu::Queue queue, Uniforms uniforms)
+void TransferFunctionTest::RenderStage::UpdateUniforms(wgpu::Queue queue, RS_Uniforms uniforms)
 {
-    queue.writeBuffer(uniformBuffer, 0, &uniforms, sizeof(Uniforms));
+    queue.writeBuffer(uniformBuffer, 0, &uniforms, sizeof(RS_Uniforms));
 }
 
 
@@ -395,10 +436,6 @@ bool TransferFunctionTest::RenderStage::CreatePipeline(wgpu::Device device, wgpu
         struct Uniforms {
             viewMatrix: mat4x4<f32>,
             projMatrix: mat4x4<f32>,
-            gridWidth: f32,
-            gridHeight: f32,
-            minValue: f32,
-            maxValue: f32,
         };
 
         struct VertexOutput {
@@ -570,7 +607,7 @@ bool TransferFunctionTest::RenderStage::InitBindGroup(wgpu::Device device, wgpu:
     renderBindGroupEntries[0].binding = 0;
     renderBindGroupEntries[0].buffer = uniformBuffer;
     renderBindGroupEntries[0].offset = 0;
-    renderBindGroupEntries[0].size = sizeof(Uniforms);
+    renderBindGroupEntries[0].size = sizeof(RS_Uniforms);
     renderBindGroupEntries[1].binding = 1;
     renderBindGroupEntries[1].textureView = outputTexture;
     renderBindGroupEntries[2].binding = 2;
