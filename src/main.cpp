@@ -6,19 +6,14 @@
 
 int main()
 {
-	Camera* camera = new Camera(Camera::CameraMode::Ortho2D);
-	std::unique_ptr<CameraController> cameraController = std::make_unique<CameraController>(camera);
-
 	
-
 	// Initialize the application
 	Application app;
 	// Set the camera controller to the application
-	app.SetCameraController(std::move(cameraController));
-
+	
 
     try {
-        if (!app.Initialize(1280, 760, "LearnWebGPU")) {
+        if (!app.OnInit(1280, 760, "LearnWebGPU")) {
             throw std::runtime_error("Failed to initialize application.");
         }
     }
@@ -32,16 +27,16 @@ int main()
 	// Equivalent of the main loop when using Emscripten:
 	auto callback = [](void *arg) {
 		Application* pApp = reinterpret_cast<Application*>(arg);
-		pApp->MainLoop(); // 4. We can use the application object
+		pApp->OnFrame(); // 4. We can use the application object
 	};
 	emscripten_set_main_loop_arg(callback, &app, 0, true);
 #else // __EMSCRIPTEN__
 	while (app.IsRunning()) {
-		app.MainLoop();
+		app.OnFrame();
 	}
 #endif // __EMSCRIPTEN__
 
-	app.Terminate();
+	app.OnFinish();
 
 	return 0;
 }

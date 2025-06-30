@@ -586,8 +586,8 @@ void WebGPUTransferFunctionWidget::update_colormap()
     
     // 确保 current_colormap 有正确的大小
     if (current_colormap.size() != COLORMAP_WIDTH * 4) {
-        std::cout << "Resizing colormap from " << current_colormap.size() 
-                  << " to " << (COLORMAP_WIDTH * 4) << " bytes" << std::endl;
+        // std::cout << "Resizing colormap from " << current_colormap.size() 
+        //           << " to " << (COLORMAP_WIDTH * 4) << " bytes" << std::endl;
         
         std::vector<uint8_t> old_colormap = current_colormap;
         current_colormap.resize(COLORMAP_WIDTH * 4);
@@ -684,8 +684,8 @@ void WebGPUTransferFunctionWidget::load_embedded_preset(const uint8_t *buf,
         }
     }
     
-    std::cout << "Loaded embedded preset: " << name << " (" << w << "x" << h << " pixels, " 
-              << cmap.colormap.size() << " bytes)" << std::endl;
+    // std::cout << "Loaded embedded preset: " << name << " (" << w << "x" << h << " pixels, " 
+    //           << cmap.colormap.size() << " bytes)" << std::endl;
 }
 
 }

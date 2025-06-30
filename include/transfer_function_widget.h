@@ -1,10 +1,7 @@
-#include <cstring>  // 添加 memcpy 支持// transfer_function_widget.h
-#pragma once
 
-#include <cstdint>
-#include <string>
-#include <vector>
-#include <webgpu/webgpu.hpp>
+#pragma once
+#include "ggl.h"
+
 #include "imgui.h"
 
 namespace tfnw {

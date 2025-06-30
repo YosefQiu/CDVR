@@ -1,6 +1,5 @@
 #include "Application.h"
-#include "ComputeOptimizedVisualizer.h"
-#include "GLFW/glfw3.h"
+
 #include "webgpu-utils.h"
 
 #include "test.h"
@@ -8,161 +7,39 @@
 #include <imgui.h>
 #include <backends/imgui_impl_wgpu.h>
 #include <backends/imgui_impl_glfw.h>
-#include <iostream>
-#include <webgpu/webgpu.hpp>
 
 
-bool Application::Initialize(int width, int height, const char* title)
+
+bool Application::OnInit(int width, int height, const char* title )
 {
-// 初始化环境
-// 1. 创建窗口（GLFW）
-// 2. 创建 WebGPU 实例（Instance[类似于 OpenGL绑定 context]），并从窗口创建 Surface（渲染目标【类似于 OpenGL framebuffer】）
-// 3. 请求适配器（Adapter）表示物理 GPU （选择 物理 GPU 作为渲染设备（Intel / AMD / NVIDIA））
-// 4. 请求设备（Device） 表示逻辑 GPU +  获取队列（Queue）用于提交命令
-
-	m_width = width;
-	m_height = height;
-
-    // Open window
-	glfwInit();
-	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-	m_window = glfwCreateWindow(width, height, title, nullptr, nullptr);
-
-
-    // 详细检查窗口创建结果
-    int actualWidth, actualHeight;
-    int framebufferWidth, framebufferHeight;
-    float xscale, yscale;
-    
-    glfwGetWindowSize(m_window, &actualWidth, &actualHeight);
-    glfwGetFramebufferSize(m_window, &framebufferWidth, &framebufferHeight);
-    glfwGetWindowContentScale(m_window, &xscale, &yscale);
-    
-    std::cout << "=== Window Creation Debug ===" << std::endl;
-    std::cout << "Requested: " << width << "x" << height << std::endl;
-    std::cout << "Actual window: " << actualWidth << "x" << actualHeight << std::endl;
-    std::cout << "Framebuffer: " << framebufferWidth << "x" << framebufferHeight << std::endl;
-    std::cout << "Content scale: " << xscale << "x" << yscale << std::endl;
-
-    m_width = framebufferWidth;   // 这是关键！
-    m_height = framebufferHeight;
-
-	m_instance = wgpuCreateInstance(nullptr);
-
-	std::cout << "Requesting adapter..." << std::endl;
-	m_surface = glfwGetWGPUSurface(m_instance, m_window);
-	wgpu::RequestAdapterOptions adapterOpts = {};
-	adapterOpts.compatibleSurface = m_surface;
-	wgpu::Adapter adapter = m_instance.requestAdapter(adapterOpts);
-	std::cout << "Got adapter: " << adapter << std::endl;
-
-	m_instance.release();
-
-	std::cout << "Requesting device..." << std::endl;
-	wgpu::DeviceDescriptor deviceDesc = {};
-	deviceDesc.label = "My Device";
-	deviceDesc.requiredFeatureCount = 0;
-	deviceDesc.requiredLimits = nullptr;
-	deviceDesc.defaultQueue.nextInChain = nullptr;
-	deviceDesc.defaultQueue.label = "The default queue";
-	deviceDesc.deviceLostCallback = [](WGPUDeviceLostReason reason, char const* message, void* /* pUserData */) {
-		std::cout << "Device lost: reason " << reason;
-		if (message) std::cout << " (" << message << ")";
-		std::cout << std::endl;
-	};
-	m_device = adapter.requestDevice(deviceDesc);
-	std::cout << "Got device: " << m_device << std::endl;
-
-    //  output
-    wgpu::AdapterProperties properties;
-    adapter.getProperties(&properties);
-    std::string backendStr;
-    switch (properties.backendType) {
-        case WGPUBackendType_Metal: backendStr = "Metal"; break;
-        case WGPUBackendType_Vulkan: backendStr = "Vulkan"; break;
-        case WGPUBackendType_D3D12: backendStr = "Direct3D 12"; break;
-        case WGPUBackendType_OpenGL: backendStr = "OpenGL"; break;
-        default: backendStr = "Unknown"; break;
-    }
-    std::cout << "Backend: " << backendStr << std::endl;
-
-    std::cout << "Adapter name: " << properties.name << std::endl;
-    std::cout << "Vendor ID: " << properties.vendorID << std::endl;
-    std::cout << "Device ID: " << properties.deviceID << std::endl;
-    std::cout << "Backend: " << backendStr << std::endl;
-
-	uncapturedErrorCallbackHandle = m_device.setUncapturedErrorCallback([](wgpu::ErrorType type, char const* message) {
-		std::cout << "Uncaptured device error: type " << type;
-		if (message) std::cout << " (" << message << ")";
-		std::cout << std::endl;
-	});
-
-	m_queue = m_device.getQueue();
-
-	// Configure the surface （默认的framebuffer）
-	wgpu::SurfaceConfiguration config = {};
-	// Configuration of the textures created for the underlying swap chain
-	config.width = m_width;
-	config.height = m_height;
-	config.usage = wgpu::TextureUsage::RenderAttachment;
-	wgpu::TextureFormat surfaceFormat = m_surface.getPreferredFormat(adapter);
-	config.format = surfaceFormat;
-
-	m_swapChainFormat = m_surface.getPreferredFormat(adapter);
-
-	// And we do not need any particular view format:
-	config.viewFormatCount = 0;
-	config.viewFormats = nullptr;
-	config.device = m_device;
-	config.presentMode = wgpu::PresentMode::Fifo;
-	config.alphaMode = wgpu::CompositeAlphaMode::Auto;
-
-	m_surface.configure(config);
-
-    m_tfTest = std::make_unique<TransferFunctionTest>(m_device, m_queue, m_swapChainFormat);
-    m_tfTest->Initialize();
-    
-	m_adapter = adapter;
-	
-	glfwSetWindowUserPointer(m_window, this);
-	glfwSetKeyCallback(m_window, Application::KeyCallback);
-	glfwSetCursorPosCallback(m_window, Application::CursorPosCallback);
-	glfwSetMouseButtonCallback(m_window, Application::MouseButtonCallback);
-	glfwSetScrollCallback(m_window, Application::ScrollCallback);
-	glfwSetFramebufferSizeCallback(m_window, Application::FramebufferResizeCallback);
-	
+    if (!InitWindowAndDevice(width, height, title)) return false;
+	if (!InitSwapChain()) return false;
+	if (!InitDepthBuffer()) return false;
+    if (!InitCameraAndControl()) return false;
+	if (!InitGeometry()) return false;
 	if (!InitGui()) return false;
-
 	return true;
 }
 
-void Application::Terminate()
+void Application::OnFrame()
 {
-	m_surface.unconfigure();
-	m_queue.release();
-	m_surface.release();
-	m_device.release();
-
-	TerminateGui();
-
-	glfwDestroyWindow(m_window);
-	glfwTerminate();
+    MainLoop();
 }
+
+void Application::OnFinish()
+{
+    TerminateGui();
+    TerminateDepthBuffer();
+    TerminateSwapChain();
+    TerminateCameraAndControl();
+    TerminateGeometry();
+    TerminateWindowAndDevice();
+}
+
+
 
 void Application::MainLoop()
 {
-
-	// 主循环 （每一帧）
-	// 1. 处理事件（GLFW）
-	// 2. 获取当前帧的可绘制纹理视图（TextureView） 【相当于 OpenGL 中每帧隐式获得的「默认 framebuffer」】
-	// 3. 创建命令编码器（CommandEncoder）
-	// 4. 开启渲染通道（RenderPassEncoder）
-	// 5. 清除背景颜色（通过 loadOp = Clear）
-	// 6. 结束渲染通道，生成命令缓冲区（CommandBuffer）
-	// 7. 提交命令缓冲区到 GPU 队列（Queue.submit）
-	// 8. 显示结果（surface.present）—— 非浏览器环境下
-
 
 	glfwPollEvents();
 
@@ -210,7 +87,25 @@ void Application::MainLoop()
 
     renderPassDesc.colorAttachmentCount = 1;
     renderPassDesc.colorAttachments = &renderPassColorAttachment;
-    renderPassDesc.depthStencilAttachment = nullptr;
+
+    wgpu::RenderPassDepthStencilAttachment depthStencilAttachment = {};
+    depthStencilAttachment.view = m_depthTextureView;
+    depthStencilAttachment.depthClearValue = 1.0f;
+    depthStencilAttachment.depthLoadOp = wgpu::LoadOp::Clear;
+    depthStencilAttachment.depthStoreOp = wgpu::StoreOp::Store;
+    depthStencilAttachment.depthReadOnly = false;
+#ifdef WEBGPU_BACKEND_WGPU
+    depthStencilAttachment.stencilClearValue = 0;
+    depthStencilAttachment.stencilLoadOp = wgpu::LoadOp::Clear;
+    depthStencilAttachment.stencilStoreOp = wgpu::StoreOp::Store;
+    depthStencilAttachment.stencilReadOnly = true;
+#else
+    depthStencilAttachment.stencilLoadOp = wgpu::LoadOp::Undefined;
+    depthStencilAttachment.stencilStoreOp = wgpu::StoreOp::Undefined;
+    depthStencilAttachment.stencilReadOnly = false;
+#endif
+
+    renderPassDesc.depthStencilAttachment = &depthStencilAttachment;
     renderPassDesc.timestampWrites = nullptr;
 
     wgpu::RenderPassEncoder renderPass = encoder.beginRenderPass(renderPassDesc);
@@ -274,26 +169,15 @@ void Application::OnKey(int key, [[maybe_unused]] int scancode, int action, [[ma
 			glfwSetWindowMonitor(m_window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
 		}
 	}
-    else if (m_tfTest && (key == GLFW_KEY_J || key == GLFW_KEY_K)) {
-        m_tfTest->OnKeyPress(key, action);
-    }
+    
 }
 
 void Application::OnResize(int width, int height)
 {
-    std::cout << "OnResize called with framebuffer size: " << width << "x" << height << std::endl;
-    
-    // 这里的参数已经是framebuffer尺寸了（因为你用的是FramebufferResizeCallback）
-    if (width <= 0 || height <= 0) {
-        return;
-    }
-    
-    // 检查是否真的需要重新配置
-    if (m_width == width && m_height == height) {
-        std::cout << "Size unchanged, skipping reconfigure" << std::endl;
-        return;
-    }
-    
+   
+    if (width <= 0 || height <= 0) return;
+    if (m_width == width && m_height == height) return;
+
     m_width = width;   // 这已经是framebuffer尺寸
     m_height = height;
 
@@ -313,11 +197,9 @@ void Application::OnResize(int width, int height)
     config.device = m_device;
     config.presentMode = wgpu::PresentMode::Fifo;
     config.alphaMode = wgpu::CompositeAlphaMode::Auto;
-    
-    std::cout << "Reconfiguring surface to: " << config.width << "x" << config.height << std::endl;
+
     m_surface.configure(config);
 
-    // 通知可视化器窗口大小变化
 
     // ImGui配置需要窗口逻辑尺寸，不是framebuffer尺寸
     int windowWidth, windowHeight;
@@ -331,8 +213,6 @@ void Application::OnResize(int width, int height)
     float scaleY = static_cast<float>(height) / static_cast<float>(windowHeight);
     io.DisplayFramebufferScale = ImVec2(scaleX, scaleY);
     
-    std::cout << "ImGui DisplaySize: " << windowWidth << "x" << windowHeight << std::endl;
-    std::cout << "ImGui FramebufferScale: " << scaleX << "x" << scaleY << std::endl;
 }
 
 void Application::KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
@@ -466,12 +346,10 @@ void Application::UpdateGui(wgpu::RenderPassEncoder renderPass)
         
         ImGui::Checkbox("Demo Window", &show_demo_window);
         ImGui::Checkbox("Show Transfer Function", &show_transfer_function);
-        ImGui::Checkbox("Use Compute Shader", &m_useCompute);
         
         static int mode = 0;
         const char* items[] = { "Compute Shader", "Vertex+Fragment Shader" };
         ImGui::Combo("Render Mode", &mode, items, IM_ARRAYSIZE(items));
-        m_useCompute = (mode == 0);
         
         ImGui::Spacing();
         ImGui::Separator();
@@ -560,4 +438,254 @@ void Application::UpdateRenderPipelineTransferFunction(wgpu::TextureView tfTextu
     }
     
     // std::cout << "Transfer function updated for compute visualization!" << std::endl;
+}
+
+
+bool Application::InitWindowAndDevice(int width, int height, const char* title)
+{
+	m_width = width;
+	m_height = height;
+
+	if (!glfwInit())
+    {
+        std::cerr << "[ERROR]::InitWindowAndDevice() failed to initialize GLFW!" << std::endl;
+        return false;
+    }
+	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+	glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+	m_window = glfwCreateWindow(width, height, title, nullptr, nullptr);
+    if (!m_window)
+    {
+        std::cerr << "[ERROR]::InitWindowAndDevice() failed to create GLFW window!" << std::endl;
+        glfwTerminate();
+        return false;
+    }
+
+    // 详细检查窗口创建结果
+    int actualWidth, actualHeight;
+    int framebufferWidth, framebufferHeight;
+    float xscale, yscale;
+    
+    glfwGetWindowSize(m_window, &actualWidth, &actualHeight);
+    glfwGetFramebufferSize(m_window, &framebufferWidth, &framebufferHeight);
+    glfwGetWindowContentScale(m_window, &xscale, &yscale);
+    
+    std::cout << "=== Window Creation Parameters ===" << std::endl;
+    std::cout << "== Requested: " << width << "x" << height << std::endl;
+    std::cout << "== Actual window: " << actualWidth << "x" << actualHeight << std::endl;
+    std::cout << "== Framebuffer: " << framebufferWidth << "x" << framebufferHeight << std::endl;
+    std::cout << "== Content scale: " << xscale << "x" << yscale << std::endl;
+
+    m_width = framebufferWidth;   
+    m_height = framebufferHeight;
+
+	m_instance = wgpuCreateInstance(nullptr);
+    if (!m_instance) {
+        std::cerr << "[ERROR]::InitWindowAndDevice() failed to create WebGPU instance!" << std::endl;
+        glfwDestroyWindow(m_window);
+        glfwTerminate();
+        return false;
+    }
+
+	std::cout << "Requesting adapter..." << std::endl;
+	m_surface = glfwGetWGPUSurface(m_instance, m_window);
+	wgpu::RequestAdapterOptions adapterOpts = {};
+	adapterOpts.compatibleSurface = m_surface;
+	wgpu::Adapter adapter = m_instance.requestAdapter(adapterOpts);
+	std::cout << "Got adapter: " << adapter << std::endl;
+
+    wgpu::SupportedLimits supportedLimits;
+    adapter.getLimits(&supportedLimits);
+
+	std::cout << "Requesting device..." << std::endl;
+	wgpu::DeviceDescriptor deviceDesc = {};
+	deviceDesc.label = "My Device";
+	deviceDesc.requiredFeatureCount = 0;
+	deviceDesc.requiredLimits = nullptr;
+	deviceDesc.defaultQueue.nextInChain = nullptr;
+	deviceDesc.defaultQueue.label = "The default queue";
+	deviceDesc.deviceLostCallback = [](WGPUDeviceLostReason reason, char const* message, void* /* pUserData */) {
+		std::cout << "Device lost: reason " << reason;
+		if (message) std::cout << " (" << message << ")";
+		std::cout << std::endl;
+	};
+	m_device = adapter.requestDevice(deviceDesc);
+	std::cout << "Got device: " << m_device << std::endl;
+
+    wgpu::AdapterProperties properties;
+    adapter.getProperties(&properties);
+    std::string backendStr;
+    switch (properties.backendType) {
+        case WGPUBackendType_Metal: backendStr = "Metal"; break;
+        case WGPUBackendType_Vulkan: backendStr = "Vulkan"; break;
+        case WGPUBackendType_D3D12: backendStr = "Direct3D 12"; break;
+        case WGPUBackendType_OpenGL: backendStr = "OpenGL"; break;
+        default: backendStr = "Unknown"; break;
+    }
+    std::cout << "=== Adapter Properties ===" << std::endl;
+    std::cout << "== Backend: " << backendStr << std::endl;
+    std::cout << "== Adapter name: " << properties.name << std::endl;
+    std::cout << "== Vendor ID: " << properties.vendorID << std::endl;
+    std::cout << "== Device ID: " << properties.deviceID << std::endl;
+    std::cout << "== Backend: " << backendStr << std::endl;
+
+	m_errorCallbackHandle = m_device.setUncapturedErrorCallback([](wgpu::ErrorType type, char const* message) {
+		std::cout << "Device error: type " << type;
+		if (message) std::cout << " (" << message << ")";
+		std::cout << std::endl;
+	});
+
+	m_queue = m_device.getQueue();
+	m_adapter = adapter;
+	
+	glfwSetWindowUserPointer(m_window, this);
+	glfwSetKeyCallback(m_window, Application::KeyCallback);
+	glfwSetCursorPosCallback(m_window, Application::CursorPosCallback);
+	glfwSetMouseButtonCallback(m_window, Application::MouseButtonCallback);
+	glfwSetScrollCallback(m_window, Application::ScrollCallback);
+	glfwSetFramebufferSizeCallback(m_window, Application::FramebufferResizeCallback);
+	
+	
+
+	return m_device != nullptr;
+}
+
+void Application::TerminateWindowAndDevice()
+{
+    if (m_queue) {
+        m_queue.release();
+    }
+    if (m_device) {
+        m_device.release();
+    }
+    if (m_instance) {
+        m_instance.release();
+    }
+    if (m_window) {
+        glfwDestroyWindow(m_window);
+        m_window = nullptr;
+    }
+    glfwTerminate();
+}
+
+bool Application::InitSwapChain()
+{
+    if (!m_surface) {
+        std::cerr << "[ERROR]::InitSwapChain() - Surface is not initialized!" << std::endl;
+        return false;
+    }
+
+    wgpu::SurfaceConfiguration config = {};
+	config.width = m_width;
+	config.height = m_height;
+	config.usage = wgpu::TextureUsage::RenderAttachment;
+	wgpu::TextureFormat surfaceFormat = m_surface.getPreferredFormat(m_adapter);
+	config.format = surfaceFormat;
+
+	m_swapChainFormat = m_surface.getPreferredFormat(m_adapter);
+
+	config.viewFormatCount = 0;
+	config.viewFormats = nullptr;
+	config.device = m_device;
+	config.presentMode = wgpu::PresentMode::Fifo;
+	config.alphaMode = wgpu::CompositeAlphaMode::Auto;
+
+	m_surface.configure(config);
+
+    
+    return m_surface != nullptr;
+}
+
+void Application::TerminateSwapChain()
+{
+    if (m_surface) {
+        m_surface.unconfigure();
+        m_surface.release();
+    }
+    m_swapChainFormat = wgpu::TextureFormat::Undefined;
+}
+
+bool Application::InitDepthBuffer()
+{
+    if (!m_device) {
+        std::cerr << "[ERROR]::InitDepthBuffer() - Device is not initialized!" << std::endl;
+        return false;
+    }
+
+    wgpu::TextureDescriptor depthTextureDesc = {};
+    depthTextureDesc.label = "Depth Texture";
+    depthTextureDesc.size.width = m_width;
+    depthTextureDesc.size.height = m_height;
+    depthTextureDesc.size.depthOrArrayLayers = 1;
+    depthTextureDesc.sampleCount = 1;
+    depthTextureDesc.mipLevelCount = 1;
+    depthTextureDesc.dimension = wgpu::TextureDimension::_2D;
+    depthTextureDesc.format = m_depthTextureFormat;
+    depthTextureDesc.usage = wgpu::TextureUsage::RenderAttachment | wgpu::TextureUsage::CopySrc;
+    depthTextureDesc.viewFormats = (WGPUTextureFormat*)&m_depthTextureFormat;
+    m_depthTexture = m_device.createTexture(depthTextureDesc);
+    std::cout << "Depth texture: " << m_depthTexture << std::endl;
+
+    wgpu::TextureViewDescriptor depthViewDesc = {};
+    depthViewDesc.label = "Depth Texture View";
+    depthViewDesc.aspect = wgpu::TextureAspect::DepthOnly;
+	depthViewDesc.baseArrayLayer = 0;
+	depthViewDesc.arrayLayerCount = 1;
+	depthViewDesc.baseMipLevel = 0;
+	depthViewDesc.mipLevelCount = 1;
+	depthViewDesc.dimension = wgpu::TextureViewDimension::_2D;
+	depthViewDesc.format = m_depthTextureFormat;
+    m_depthTextureView = m_depthTexture.createView();
+    std::cout << "Depth texture view: " << m_depthTextureView << std::endl;
+    
+    return m_depthTextureView != nullptr;
+}
+
+void Application::TerminateDepthBuffer()
+{
+    if (m_depthTextureView) {
+        m_depthTextureView.release();
+        m_depthTextureView = nullptr;
+    }
+    if (m_depthTexture) {
+        m_depthTexture.release();
+        m_depthTexture = nullptr;
+    }
+    m_depthTextureFormat = wgpu::TextureFormat::Undefined;
+}
+
+
+bool Application::InitCameraAndControl()
+{
+    Camera* camera = new Camera(Camera::CameraMode::Ortho2D);
+    m_cameraController = std::make_unique<CameraController>(camera);
+    if (!m_cameraController) {
+        std::cerr << "[ERROR]::InitCameraAndControl() - Failed to create CameraController!" << std::endl;
+        return false;
+    }
+    SetCameraController(std::move(m_cameraController));
+
+
+    return m_cameraController != nullptr;
+}
+
+void Application::TerminateCameraAndControl()
+{
+    if (m_cameraController) {
+        m_cameraController.reset();
+    }
+}
+
+bool Application::InitGeometry()
+{
+    m_tfTest = std::make_unique<TransferFunctionTest>(m_device, m_queue, m_swapChainFormat);
+    m_tfTest->Initialize();
+    return m_tfTest != nullptr;
+}
+
+void Application::TerminateGeometry()
+{
+    if (m_tfTest) {
+        m_tfTest.reset();
+    }
 }

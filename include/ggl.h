@@ -10,10 +10,14 @@
 #include <fstream>  
 #include <sstream>
 #include <limits>
+#include <cstdint>
+#include <cstring>  
 
 #include <GLFW/glfw3.h>
 #include <glfw3webgpu.h>
 
+
+#include <webgpu/webgpu.hpp>
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>

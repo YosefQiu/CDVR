@@ -1,7 +1,6 @@
 // TransferFunctionTest.h
 #pragma once
 #include "ggl.h"
-#include <webgpu/webgpu.hpp>
 
 
 class TransferFunctionTest {
@@ -12,7 +11,6 @@ public:
     bool Initialize();
     void Render(wgpu::RenderPassEncoder renderPass);
     void RenderWithTF(wgpu::RenderPassEncoder renderPass, wgpu::TextureView tfTextureView);
-    void OnKeyPress(int key, int action);
     void OnWindowResize(int width, int height);
     void SetExternalTransferFunction(wgpu::TextureView tfTextureView);
     void UpdateIfNeeded();
@@ -24,7 +22,6 @@ private:
     wgpu::Queue m_queue;
     wgpu::TextureFormat m_swapChainFormat;
     bool m_needsUpdate = false;
-    bool m_needChange = true;
     wgpu::TextureView m_lastTFView = nullptr;
     wgpu::TextureView m_tfTextureView = nullptr;
 

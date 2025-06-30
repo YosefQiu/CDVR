@@ -1,8 +1,6 @@
 // TransferFunctionTest.cpp
 #include "test.h"
-#include <iostream>
-#include <cmath>
-#include "GLFW/glfw3.h" 
+
 
 TransferFunctionTest::TransferFunctionTest(wgpu::Device device, wgpu::Queue queue, wgpu::TextureFormat swapChainFormat)
     : m_device(device), m_queue(queue), m_swapChainFormat(swapChainFormat) {
@@ -319,6 +317,24 @@ bool TransferFunctionTest::CreateRenderPipeline() {
     renderPipelineDesc.vertex.entryPoint = "main";
     renderPipelineDesc.vertex.bufferCount = 1;
     renderPipelineDesc.vertex.buffers = &vertexBufferLayout;
+    wgpu::StencilFaceState stencil{};
+    stencil.compare      = wgpu::CompareFunction::Always;   // 不用模板测试
+    stencil.failOp       = wgpu::StencilOperation::Keep;
+    stencil.depthFailOp  = wgpu::StencilOperation::Keep;
+    stencil.passOp       = wgpu::StencilOperation::Keep;
+    wgpu::DepthStencilState ds{};
+    ds.format            = wgpu::TextureFormat::Depth24Plus; // 必须和 Pass 一致
+    ds.depthWriteEnabled = false;                            // 2D 不写深度
+    ds.stencilFront      = stencil;
+    ds.stencilBack       = stencil;         // ✨ 必填
+    ds.stencilReadMask   = 0xFFFFFFFF;      // 合法掩码
+    ds.stencilWriteMask  = 0xFFFFFFFF;      // 合法掩码
+    ds.depthBias         = 0;
+    ds.depthBiasSlopeScale = 0.0f;
+    ds.depthBiasClamp    = 0.0f;
+    ds.depthCompare      = wgpu::CompareFunction::Always;    // 总是通过
+    renderPipelineDesc.depthStencil = &ds;
+
     
     wgpu::FragmentState fragmentState = {};
     fragmentState.module = fragmentShader;
@@ -482,10 +498,7 @@ void TransferFunctionTest::Render(wgpu::RenderPassEncoder renderPass) {
     renderPass.draw(4, 1, 0, 0);
 }
 
-void TransferFunctionTest::OnKeyPress(int key, int action) {
-    // 保留这个方法以维持接口一致性，但现在不需要按键处理
-    // 如果将来需要其他按键功能，可以在这里添加
-}
+
 
 void TransferFunctionTest::OnWindowResize(int width, int height) {
     std::cout << "TransferFunctionTest: Window resized to " << width << "x" << height << std::endl;

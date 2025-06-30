@@ -17,6 +17,7 @@ add_subdirectory(third/webgpu)
 add_subdirectory(third/glfw3webgpu)
 add_subdirectory(third/imgui)
 include_directories(third/glm)
+include_directories(third/stb)
 
 
 FILE(GLOB PROJECT_HEADERS include/*.h include/*.hpp)
