@@ -581,9 +581,11 @@ public:
         float maxValue;
         float gridWidth;
         float gridHeight;
-        uint32_t numPoints;
+        uint32_t rootNodeIndex;
+        uint32_t totalNodes;
+        uint32_t totalPoints;
         float searchRadius;
-        float padding[2];
+        uint32_t interpolationMethod;
     };
 
     struct DataHeader {
@@ -597,15 +599,22 @@ public:
         wgpu::ComputePipeline pipeline = nullptr;
         wgpu::BindGroup data_bindGroup = nullptr;
         wgpu::BindGroup TF_bindGroup = nullptr;
+        wgpu::BindGroup KDTree_bindGroup = nullptr;
         wgpu::Buffer uniformBuffer = nullptr;
         wgpu::Buffer storageBuffer = nullptr;
+        wgpu::Buffer kdNodesBuffer = nullptr;
+        wgpu::Buffer leafPointsBuffer = nullptr;
 
-        bool Init(wgpu::Device device, wgpu::Queue queue, const std::vector<SparsePoint>& sparsePoints, const CS_Uniforms uniforms);
+        bool Init(wgpu::Device device, wgpu::Queue queue, 
+            const std::vector<SparsePoint>& sparsePoints, 
+            const KDTreeBuilder::KDTreeData& kdTreeData,
+            const CS_Uniforms uniforms);
         bool CreatePipeline(wgpu::Device device);
         bool UpdateBindGroup(wgpu::Device device, wgpu::TextureView inputTF, wgpu::TextureView outputTexture);
         void RunCompute(wgpu::Device device, wgpu::Queue queue);
         void Release();
     private:
+        bool InitKDTreeBuffers(wgpu::Device device, wgpu::Queue queue, const KDTreeBuilder::KDTreeData& kdTreeData);
         bool InitSSBO(wgpu::Device device, wgpu::Queue queue, const std::vector<SparsePoint>& sparsePoints);
         bool InitUBO(wgpu::Device device, CS_Uniforms uniforms);
     };
@@ -646,6 +655,7 @@ protected:
     DataHeader m_header;
     RS_Uniforms m_RS_Uniforms;
     CS_Uniforms m_CS_Uniforms;
+    KDTreeBuilder::KDTreeData m_KDTreeData;
 private:
     wgpu::Device m_device;
     wgpu::Queue m_queue;

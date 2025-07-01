@@ -37,7 +37,7 @@ bool TransferFunctionTest::Initialize(glm::mat4 vMat, glm::mat4 pMat)
     m_RS_Uniforms.projMatrix = pMat;
 
     if (!InitOutputTexture()) return false;
-    if (!m_computeStage.Init(m_device, m_queue, m_sparsePoints, m_CS_Uniforms)) return false;
+    if (!m_computeStage.Init(m_device, m_queue, m_sparsePoints, m_KDTreeData, m_CS_Uniforms)) return false;
     if (!m_renderStage.Init(m_device, m_queue, m_RS_Uniforms, m_header.width, m_header.height)) return false;
     if (!m_renderStage.CreatePipeline(m_device, m_swapChainFormat)) return false;
     if (!m_renderStage.InitBindGroup(m_device, m_outputTextureView)) return false;
@@ -72,7 +72,7 @@ bool TransferFunctionTest::InitDataFromBinary(const std::string& filename)
 
     m_CS_Uniforms.gridWidth = static_cast<float>(m_header.width);
     m_CS_Uniforms.gridHeight = static_cast<float>(m_header.height);
-    m_CS_Uniforms.numPoints = static_cast<uint32_t>(m_sparsePoints.size());
+    m_CS_Uniforms.totalPoints = static_cast<uint32_t>(m_sparsePoints.size());
     m_CS_Uniforms.searchRadius = 5.0f;
     
     // 计算值的范围（用于颜色映射）
@@ -80,14 +80,14 @@ bool TransferFunctionTest::InitDataFromBinary(const std::string& filename)
 
     // TEST FOR KD-Tree
     KDTreeBuilder builder;
-    auto kdTreeData = builder.buildKDTree(m_sparsePoints);
-    if (kdTreeData.totalNodes == 0) {
+    m_KDTreeData = builder.buildKDTree(m_sparsePoints);
+    if (m_KDTreeData.totalNodes == 0) {
         std::cerr << "[ERROR]::TransferFunctionTest: Failed to build KD-Tree" << std::endl;
         return false;
     }
 
     std::cout << "\n[TransferFunctionTest] Verifying KD-Tree..." << std::endl;
-    auto verificationResult = KDTreeVerifier::verifyKDTree(kdTreeData, m_sparsePoints);
+    auto verificationResult = KDTreeVerifier::verifyKDTree(m_KDTreeData, m_sparsePoints);
     
     if (!verificationResult.isValid) {
         std::cerr << "[ERROR] KD-Tree verification failed: " << verificationResult.errorMessage << std::endl;
@@ -95,7 +95,12 @@ bool TransferFunctionTest::InitDataFromBinary(const std::string& filename)
     }
     
     std::cout << "[TransferFunctionTest] KD-Tree verification passed!" << std::endl;
-    
+
+    m_CS_Uniforms.rootNodeIndex = m_KDTreeData.rootIndex;
+    m_CS_Uniforms.totalNodes = m_KDTreeData.totalNodes;
+    m_CS_Uniforms.interpolationMethod = 2; // 0=NN, 1=KNN avg, 2=KNN centroid, 3=KD-Tree NN
+
+
     return true;
 }
 
@@ -192,10 +197,14 @@ void TransferFunctionTest::UpdateUniforms(glm::mat4 viewMatrix, glm::mat4 projMa
    m_renderStage.UpdateUniforms(m_queue, m_RS_Uniforms);
 }
 
-bool TransferFunctionTest::ComputeStage::Init(wgpu::Device device, wgpu::Queue queue, const std::vector<SparsePoint>& sparsePoints, const CS_Uniforms uniforms)
+bool TransferFunctionTest::ComputeStage::Init(wgpu::Device device, wgpu::Queue queue, 
+    const std::vector<SparsePoint>& sparsePoints, 
+    const KDTreeBuilder::KDTreeData& kdTreeData,
+    const CS_Uniforms uniforms)
 {
     if (!InitSSBO(device, queue, sparsePoints)) return false;
     if (!InitUBO(device, uniforms)) return false;
+    if (!InitKDTreeBuffers(device, queue, kdTreeData)) return false;
     if (!CreatePipeline(device)) return false;
     return true;
 }
@@ -246,21 +255,157 @@ bool TransferFunctionTest::ComputeStage::InitSSBO(wgpu::Device device, wgpu::Que
     return true;
 }
 
-
-bool TransferFunctionTest::ComputeStage::CreatePipeline(wgpu::Device device) 
+bool TransferFunctionTest::ComputeStage::InitKDTreeBuffers(wgpu::Device device, wgpu::Queue queue, const KDTreeBuilder::KDTreeData& kdTreeData)
 {
+    if (kdTreeData.nodes.empty() || kdTreeData.points.empty()) return false;
+
+    // 1. 创建KD-Tree节点缓冲区
+    wgpu::BufferDescriptor kdNodesBufferDesc = {};
+    kdNodesBufferDesc.label = "KD-Tree Nodes Buffer";
+    kdNodesBufferDesc.size = kdTreeData.nodes.size() * sizeof(GPUKDNode);
+    kdNodesBufferDesc.usage = wgpu::BufferUsage::Storage | wgpu::BufferUsage::CopyDst;
+    kdNodesBufferDesc.mappedAtCreation = false;
     
-    auto& mgr = PipelineManager::getInstance();
+    kdNodesBuffer = device.createBuffer(kdNodesBufferDesc);
     
-    pipeline = mgr.createComputePipeline()
-        .setDevice(device)
-        .setLabel("Transfer Function Compute Pipeline")
-        .setShader("../shaders/sparse_data.comp.wgsl", "main")
-        .build();
+    if (!kdNodesBuffer) {
+        std::cout << "[ERROR]::InitKDTreeBuffers Failed to create KD-Tree nodes buffer" << std::endl;
+        return false;
+    }
+    
+    // 将KD-Tree节点数据写入缓冲区
+    queue.writeBuffer(kdNodesBuffer, 0, kdTreeData.nodes.data(), kdTreeData.nodes.size() * sizeof(GPUKDNode));
+
+    // 2. 创建叶节点点数据缓冲区
+    wgpu::BufferDescriptor leafPointsBufferDesc = {};
+    leafPointsBufferDesc.label = "KD-Tree Leaf Points Buffer";
+    leafPointsBufferDesc.size = kdTreeData.points.size() * sizeof(GPUPoint);
+    leafPointsBufferDesc.usage = wgpu::BufferUsage::Storage | wgpu::BufferUsage::CopyDst;
+    leafPointsBufferDesc.mappedAtCreation = false;
+    
+    leafPointsBuffer = device.createBuffer(leafPointsBufferDesc);
+    
+    if (!leafPointsBuffer) {
+        std::cout << "[ERROR]::InitKDTreeBuffers Failed to create KD-Tree leaf points buffer" << std::endl;
+        return false;
+    }
+    
+    // 将叶节点点数据写入缓冲区
+    queue.writeBuffer(leafPointsBuffer, 0, kdTreeData.points.data(), kdTreeData.points.size() * sizeof(GPUPoint));
+    
+    return true;
+}
+
+
+// bool TransferFunctionTest::ComputeStage::CreatePipeline(wgpu::Device device) 
+// {
+    
+//     auto& mgr = PipelineManager::getInstance();
+    
+//     pipeline = mgr.createComputePipeline()
+//         .setDevice(device)
+//         .setLabel("Transfer Function Compute Pipeline")
+//         .setShader("../shaders/sparse_data.comp.wgsl", "main")
+//         .build();
 
     
+//     if (!pipeline) {
+//         std::cout << "[ERROR]::CreatePipline Failed to create compute pipeline!" << std::endl;
+//         return false;
+//     }
+    
+//     std::cout << "[TransferFunctionTest] Compute pipeline created successfully" << std::endl;
+//     return true;
+// }
+
+bool TransferFunctionTest::ComputeStage::CreatePipeline(wgpu::Device device) {
+    // 1. 创建shader module
+    auto& shaderMgr = ShaderManager::getInstance();
+    auto shaderModule = shaderMgr.loadShader(device, "../shaders/sparse_data.comp.wgsl");
+    if (!shaderModule) {
+        std::cout << "[ERROR] Failed to load compute shader!" << std::endl;
+        return false;
+    }
+    
+    // 2. 创建bind group layouts
+    
+    // Group 0: Output texture + Uniforms + Sparse points
+    wgpu::BindGroupLayoutEntry group0Entries[3] = {};
+    group0Entries[0].binding = 0;
+    group0Entries[0].visibility = wgpu::ShaderStage::Compute;
+    group0Entries[0].storageTexture.access = wgpu::StorageTextureAccess::WriteOnly;
+    group0Entries[0].storageTexture.format = wgpu::TextureFormat::RGBA16Float;
+    group0Entries[0].storageTexture.viewDimension = wgpu::TextureViewDimension::_2D;
+    
+    group0Entries[1].binding = 1;
+    group0Entries[1].visibility = wgpu::ShaderStage::Compute;
+    group0Entries[1].buffer.type = wgpu::BufferBindingType::Uniform;
+    
+    group0Entries[2].binding = 2;
+    group0Entries[2].visibility = wgpu::ShaderStage::Compute;
+    group0Entries[2].buffer.type = wgpu::BufferBindingType::ReadOnlyStorage;
+    
+    wgpu::BindGroupLayoutDescriptor group0Desc = {};
+    group0Desc.label = "Group 0 Layout";
+    group0Desc.entryCount = 3;
+    group0Desc.entries = group0Entries;
+    auto group0Layout = device.createBindGroupLayout(group0Desc);
+    
+    // Group 1: Transfer Function texture
+    wgpu::BindGroupLayoutEntry group1Entries[1] = {};
+    group1Entries[0].binding = 0;
+    group1Entries[0].visibility = wgpu::ShaderStage::Compute;
+    group1Entries[0].texture.sampleType = wgpu::TextureSampleType::Float;
+    group1Entries[0].texture.viewDimension = wgpu::TextureViewDimension::_2D;
+    
+    wgpu::BindGroupLayoutDescriptor group1Desc = {};
+    group1Desc.label = "Group 1 Layout";
+    group1Desc.entryCount = 1;
+    group1Desc.entries = group1Entries;
+    auto group1Layout = device.createBindGroupLayout(group1Desc);
+    
+    // Group 2: KD-Tree data
+    wgpu::BindGroupLayoutEntry group2Entries[2] = {};
+    group2Entries[0].binding = 0;
+    group2Entries[0].visibility = wgpu::ShaderStage::Compute;
+    group2Entries[0].buffer.type = wgpu::BufferBindingType::ReadOnlyStorage;
+    
+    group2Entries[1].binding = 1;
+    group2Entries[1].visibility = wgpu::ShaderStage::Compute;
+    group2Entries[1].buffer.type = wgpu::BufferBindingType::ReadOnlyStorage;
+    
+    wgpu::BindGroupLayoutDescriptor group2Desc = {};
+    group2Desc.label = "Group 2 Layout";
+    group2Desc.entryCount = 2;
+    group2Desc.entries = group2Entries;
+    auto group2Layout = device.createBindGroupLayout(group2Desc);
+    
+    // 3. 创建pipeline layout
+    wgpu::BindGroupLayout layouts[3] = {group0Layout, group1Layout, group2Layout};
+    wgpu::PipelineLayoutDescriptor pipelineLayoutDesc = {};
+    pipelineLayoutDesc.label = "Compute Pipeline Layout";
+    pipelineLayoutDesc.bindGroupLayoutCount = 3;
+    pipelineLayoutDesc.bindGroupLayouts = reinterpret_cast<const WGPUBindGroupLayout*>(layouts);
+    auto pipelineLayout = device.createPipelineLayout(pipelineLayoutDesc);
+    
+    // 4. 创建compute pipeline
+    wgpu::ComputePipelineDescriptor pipelineDesc = {};
+    pipelineDesc.label = "Transfer Function Compute Pipeline";
+    pipelineDesc.layout = pipelineLayout;  // ← 关键：设置显式layout
+    pipelineDesc.compute.module = shaderModule;
+    pipelineDesc.compute.entryPoint = "main";
+
+    pipeline = device.createComputePipeline(pipelineDesc);
+
+    // 5. 清理
+    shaderModule.release();
+    group0Layout.release();
+    group1Layout.release();
+    group2Layout.release();
+    pipelineLayout.release();
+
     if (!pipeline) {
-        std::cout << "[ERROR]::CreatePipline Failed to create compute pipeline!" << std::endl;
+        std::cout << "[ERROR] Failed to create compute pipeline!" << std::endl;
         return false;
     }
     
@@ -330,14 +475,39 @@ bool TransferFunctionTest::ComputeStage::UpdateBindGroup(wgpu::Device device, wg
             return false;
         }
     }
+
+    {
+        wgpu::BindGroupEntry entries[2] = {};
+        entries[0].binding = 0;
+        entries[0].buffer = kdNodesBuffer;
+        entries[0].offset = 0;
+        entries[0].size = WGPU_WHOLE_SIZE;
+        entries[1].binding = 1;
+        entries[1].buffer = leafPointsBuffer;
+        entries[1].offset = 0;
+        entries[1].size = WGPU_WHOLE_SIZE;
+
+        wgpu::BindGroupDescriptor desc = {};
+        desc.label = "Compute KDTree Bind Group";
+        desc.layout = pipeline.getBindGroupLayout(2);
+        desc.entryCount = 2;
+        desc.entries = entries;
+        
+        KDTree_bindGroup = device.createBindGroup(desc);
+        if (!KDTree_bindGroup)
+        {
+            std::cout << "[ERROR] ComputeStage: Failed to create KD-Tree bind group" << std::endl;
+            return false;
+        }
+    }
     
     return true;
 }
 
 void TransferFunctionTest::ComputeStage::RunCompute(wgpu::Device device, wgpu::Queue queue) 
 {
-     if (!data_bindGroup || !TF_bindGroup || !pipeline) return;
-    
+     if (!data_bindGroup || !TF_bindGroup || !KDTree_bindGroup || !pipeline) return;
+
     wgpu::CommandEncoderDescriptor encoderDesc = {};
     encoderDesc.label = "Compute Command Encoder";
     wgpu::CommandEncoder encoder = device.createCommandEncoder(encoderDesc);
@@ -349,6 +519,7 @@ void TransferFunctionTest::ComputeStage::RunCompute(wgpu::Device device, wgpu::Q
     computePass.setPipeline(pipeline);
     computePass.setBindGroup(0, data_bindGroup, 0, nullptr);
     computePass.setBindGroup(1, TF_bindGroup, 0, nullptr); 
+    computePass.setBindGroup(2, KDTree_bindGroup, 0, nullptr);
     computePass.dispatchWorkgroups((512 + 15) / 16, (512 + 15) / 16, 1);
     
     computePass.end();
@@ -376,6 +547,10 @@ void TransferFunctionTest::ComputeStage::Release()
     if (TF_bindGroup) {
         TF_bindGroup.release();
         TF_bindGroup = nullptr;
+    }
+    if (KDTree_bindGroup) {
+        KDTree_bindGroup.release();
+        KDTree_bindGroup = nullptr;
     }
 }
 
