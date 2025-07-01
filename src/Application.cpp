@@ -262,6 +262,9 @@ void Application::MouseButtonCallback(GLFWwindow* window, int button, int action
 
 void Application::ScrollCallback(GLFWwindow* window, double xoffset, double yoffset)
 {
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.WantCaptureMouse) return;
+
 	auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
 	if (app) {
 		if (app->m_cameraController) {
@@ -278,7 +281,8 @@ void Application::FramebufferResizeCallback(GLFWwindow* window, int width, int h
 	}
 }
 
-wgpu::TextureView Application::GetNextSurfaceTextureView() {
+wgpu::TextureView Application::GetNextSurfaceTextureView() 
+{
 	// Get the surface texture
 	wgpu::SurfaceTexture surfaceTexture;
 	m_surface.getCurrentTexture(&surfaceTexture);
@@ -373,13 +377,34 @@ void Application::UpdateGui(wgpu::RenderPassEncoder renderPass)
             ImGui::Separator();
         }
         
-        // 性能信息
-        ImGuiIO& io = ImGui::GetIO();
-        ImGui::Text("Performance");
-        ImGui::Text("Average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+        // // 性能信息
+        // ImGuiIO& io = ImGui::GetIO();
+        // ImGui::Text("Performance");
+        // ImGui::Text("Average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
         
         ImGui::End();
     }
+
+    
+	{
+		ImGuiIO& io = ImGui::GetIO();
+		ImVec2 window_pos = ImVec2(3.0f, io.DisplaySize.y - 3.0f);
+		ImVec2 window_pos_pivot = ImVec2(0.0f, 1.0f);
+		ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
+		if (ImGui::Begin("Performance Stats", NULL, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs))
+		{
+			ImGui::Text("%.3f ms/frame", 1000.0f / ImGui::GetIO().Framerate);
+			ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
+			if (ImGui::IsMousePosValid())
+			{
+				ImGui::Text("Mouse Position: (%.1f,%.1f)", io.MousePos.x, io.MousePos.y);
+			}
+			else {
+				ImGui::Text("Mouse Position: <invalid>");
+			}
+		}
+		ImGui::End();
+	}
 
     // 渲染ImGui
     ImGui::EndFrame();
@@ -401,7 +426,8 @@ void Application::UpdateGui(wgpu::RenderPassEncoder renderPass)
     }
 }
 
-void Application::OnTransferFunctionChanged() {
+void Application::OnTransferFunctionChanged() 
+{
     // 获取更新的颜色映射数据
     auto colormap = m_transferFunctionWidget->get_colormap();
     
@@ -410,44 +436,14 @@ void Application::OnTransferFunctionChanged() {
     wgpu::TextureView tfTextureView = m_transferFunctionWidget->get_webgpu_texture_view();
     wgpu::Sampler tfSampler = m_transferFunctionWidget->get_webgpu_sampler();
 
-    // 调试：检查 Transfer Function 数据
-    std::cout << "=== Transfer Function Debug ===" << std::endl;
-    std::cout << "Colormap size: " << colormap.size() << " bytes" << std::endl;
-    std::cout << "Expected size for 256x1 RGBA: " << (256 * 4) << " bytes" << std::endl;
-    
-    // 检查前几个颜色值
-    if (colormap.size() >= 12) {
-        std::cout << "First 3 colors (RGBA):" << std::endl;
-        for (int i = 0; i < 12; i += 4) {
-            std::cout << "  Color " << (i/4) << ": (" 
-                      << (int)colormap[i] << ", " 
-                      << (int)colormap[i+1] << ", " 
-                      << (int)colormap[i+2] << ", " 
-                      << (int)colormap[i+3] << ")" << std::endl;
-        }
-    }
-    
-    std::cout << "Texture valid: " << (tfTexture ? "YES" : "NO") << std::endl;
-    std::cout << "TextureView valid: " << (tfTextureView ? "YES" : "NO") << std::endl;
-    std::cout << "===============================\n" << std::endl;
-    
-   
-
-    
-    UpdateRenderPipelineTransferFunction(tfTextureView, tfSampler);
-    
-    // std::cout << "Transfer function updated!" << std::endl;
-}
-
-void Application::UpdateRenderPipelineTransferFunction(wgpu::TextureView tfTextureView, wgpu::Sampler tfSampler)
-{
-    //用户调整TF → Widget更新纹理 → 绑定到Shader → GPU实时查找颜色
-   if (m_tfTest && tfTextureView) {
+    if (m_tfTest && tfTextureView) 
+    {
         m_tfTest->UpdateSSBO(tfTextureView);
     }
-    
-    // std::cout << "Transfer function updated for compute visualization!" << std::endl;
+   
 }
+
+
 
 
 bool Application::InitWindowAndDevice(int width, int height, const char* title)
@@ -633,7 +629,7 @@ bool Application::InitDepthBuffer()
     depthTextureDesc.usage = wgpu::TextureUsage::RenderAttachment | wgpu::TextureUsage::CopySrc;
     depthTextureDesc.viewFormats = (WGPUTextureFormat*)&m_depthTextureFormat;
     m_depthTexture = m_device.createTexture(depthTextureDesc);
-    std::cout << "Depth texture: " << m_depthTexture << std::endl;
+    // std::cout << "Depth texture: " << m_depthTexture << std::endl;
 
     wgpu::TextureViewDescriptor depthViewDesc = {};
     depthViewDesc.label = "Depth Texture View";

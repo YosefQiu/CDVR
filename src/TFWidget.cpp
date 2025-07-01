@@ -1,8 +1,5 @@
-#include "transfer_function_widget.h"
-#include <algorithm>
-#include <cmath>
-#include <iostream>
-#include <cstring>
+#include "TFWidget.h"
+
 
 #include "embedded_colormaps.h"
 #include "stb_image.h"
@@ -348,7 +345,7 @@ void WebGPUTransferFunctionWidget::draw_ui()
     
     // Alpha control area
     canvas_pos = ImGui::GetCursorScreenPos();
-    canvas_size = vec2f(safe_canvas_size.x, std::max(safe_canvas_size.y - 25, 50.0f));
+    canvas_size = vec2f(safe_canvas_size.x, std::max(safe_canvas_size.y - 25, 120.0f));
 
     const float point_radius = 10.f;
 

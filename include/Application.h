@@ -1,8 +1,7 @@
 #pragma once
 #include "ggl.h"
 
-#include <webgpu/webgpu.hpp>
-#include "transfer_function_widget.h"
+#include "TFWidget.h"
 #include "CameraController.h"
 #include "test.h"
 struct GLFWwindow;
@@ -37,6 +36,7 @@ private:
     void OnMouseMove(double xpos, double ypos);
     void OnMouseButton(int button, int action, int mods);
     void OnMouseScroll(double xoffset, double yoffset);
+    void OnTransferFunctionChanged();
     
     static void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
     static void CursorPosCallback(GLFWwindow* window, double xpos, double ypos);
@@ -44,8 +44,7 @@ private:
     static void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset);
     static void FramebufferResizeCallback(GLFWwindow* window, int width, int height);
 private:
-    void OnTransferFunctionChanged();
-    void UpdateRenderPipelineTransferFunction(wgpu::TextureView tfTextureView, wgpu::Sampler tfSampler);
+    
     wgpu::TextureView GetNextSurfaceTextureView();
 private:
     GLFWwindow* m_window = nullptr;

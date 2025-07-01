@@ -1,7 +1,7 @@
 // TransferFunctionTest.cpp
 #include "test.h"
-#include <fstream>
-#include <webgpu/webgpu.hpp>
+#include "PipelineManager.h"
+
 
 
 TransferFunctionTest::TransferFunctionTest(wgpu::Device device, wgpu::Queue queue, wgpu::TextureFormat swapChainFormat)
@@ -26,6 +26,7 @@ TransferFunctionTest::~TransferFunctionTest()
     }
 }
 
+
 bool TransferFunctionTest::Initialize(glm::mat4 vMat, glm::mat4 pMat) 
 {
     std::cout << "[TransferFunctionTest] Initializing Transfer Function Test..." << std::endl;
@@ -35,9 +36,9 @@ bool TransferFunctionTest::Initialize(glm::mat4 vMat, glm::mat4 pMat)
     m_RS_Uniforms.viewMatrix = vMat;
     m_RS_Uniforms.projMatrix = pMat;
 
-    if (!InitSSBO()) return false;
-    if (!m_computeStage.CreatePipeline(m_device)) return false;
-    if (!m_renderStage.Init(m_device, m_queue, m_RS_Uniforms)) return false;
+    if (!InitOutputTexture()) return false;
+    if (!m_computeStage.Init(m_device, m_queue, m_sparsePoints, m_CS_Uniforms)) return false;
+    if (!m_renderStage.Init(m_device, m_queue, m_RS_Uniforms, m_header.width, m_header.height)) return false;
     if (!m_renderStage.CreatePipeline(m_device, m_swapChainFormat)) return false;
     if (!m_renderStage.InitBindGroup(m_device, m_outputTextureView)) return false;
     
@@ -76,6 +77,24 @@ bool TransferFunctionTest::InitDataFromBinary(const std::string& filename)
     
     // 计算值的范围（用于颜色映射）
     ComputeValueRange();
+
+    // TEST FOR KD-Tree
+    KDTreeBuilder builder;
+    auto kdTreeData = builder.buildKDTree(m_sparsePoints);
+    if (kdTreeData.totalNodes == 0) {
+        std::cerr << "[ERROR]::TransferFunctionTest: Failed to build KD-Tree" << std::endl;
+        return false;
+    }
+
+    std::cout << "\n[TransferFunctionTest] Verifying KD-Tree..." << std::endl;
+    auto verificationResult = KDTreeVerifier::verifyKDTree(kdTreeData, m_sparsePoints);
+    
+    if (!verificationResult.isValid) {
+        std::cerr << "[ERROR] KD-Tree verification failed: " << verificationResult.errorMessage << std::endl;
+        return false;
+    }
+    
+    std::cout << "[TransferFunctionTest] KD-Tree verification passed!" << std::endl;
     
     return true;
 }
@@ -124,16 +143,16 @@ void TransferFunctionTest::UpdateSSBO(wgpu::TextureView tfTextureView)
     }
 }
 
-bool TransferFunctionTest::InitSSBO()
+bool TransferFunctionTest::InitOutputTexture(uint32_t width, uint32_t height, uint32_t depth, wgpu::TextureFormat format)
 {
     
     // 1. 创建输出纹理（CS的结果）
     wgpu::TextureDescriptor outputTextureDesc = {};
     outputTextureDesc.label = "CS Output Texture";
     outputTextureDesc.dimension = wgpu::TextureDimension::_2D;
-    outputTextureDesc.size = {512, 512, 1};
-    outputTextureDesc.format = wgpu::TextureFormat::RGBA8Unorm;
-     outputTextureDesc.usage = wgpu::TextureUsage::StorageBinding |     // 计算着色器写入
+    outputTextureDesc.size = {width, height, depth};
+    outputTextureDesc.format = format;
+    outputTextureDesc.usage = wgpu::TextureUsage::StorageBinding |     // 计算着色器写入
                               wgpu::TextureUsage::TextureBinding;      // 渲染着色器读取
     outputTextureDesc.mipLevelCount = 1;
     outputTextureDesc.sampleCount = 1;
@@ -142,13 +161,13 @@ bool TransferFunctionTest::InitSSBO()
     
     m_outputTexture = m_device.createTexture(outputTextureDesc);
     if (!m_outputTexture) {
-        std::cout << "[ERROR]::InitSSBO: Failed to create output texture" << std::endl;
+        std::cout << "[ERROR]::InitOutputTexture: Failed to create output texture" << std::endl;
         return false;
     }
     
     wgpu::TextureViewDescriptor outputViewDesc = {};
     outputViewDesc.label = "CS Output View";
-    outputViewDesc.format = wgpu::TextureFormat::RGBA8Unorm;
+    outputViewDesc.format = format;
     outputViewDesc.dimension = wgpu::TextureViewDimension::_2D;
     outputViewDesc.baseMipLevel = 0;
     outputViewDesc.mipLevelCount = 1;
@@ -173,65 +192,72 @@ void TransferFunctionTest::UpdateUniforms(glm::mat4 viewMatrix, glm::mat4 projMa
    m_renderStage.UpdateUniforms(m_queue, m_RS_Uniforms);
 }
 
-bool TransferFunctionTest::ComputeStage::CreatePipeline(wgpu::Device device) 
+bool TransferFunctionTest::ComputeStage::Init(wgpu::Device device, wgpu::Queue queue, const std::vector<SparsePoint>& sparsePoints, const CS_Uniforms uniforms)
 {
+    if (!InitSSBO(device, queue, sparsePoints)) return false;
+    if (!InitUBO(device, uniforms)) return false;
+    if (!CreatePipeline(device)) return false;
+    return true;
+}
 
-    const char* computeShaderSource = R"(
-        @group(0) @binding(0) var outputTexture: texture_storage_2d<rgba8unorm, write>;
-        @group(1) @binding(0) var inputTF: texture_2d<f32>;
-        
-        
-        @compute @workgroup_size(16, 16)
-        fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-            let texSize = textureDimensions(outputTexture);
-            let coord = vec2<i32>(i32(global_id.x), i32(global_id.y));
-            
-            if (coord.x >= i32(texSize.x) || coord.y >= i32(texSize.y)) {
-                return;
-            }
-            
-            // 将像素坐标归一化到[0,1]
-            let uv = vec2<f32>(f32(coord.x) / f32(texSize.x), f32(coord.y) / f32(texSize.y));
-            
-            // 简单的水平颜色映射：X坐标对应传输函数
-            let tfX = uv.x;
-            
-            // 计算传输函数纹理中的像素坐标
-            let tfTexSize = textureDimensions(inputTF);
-            let tfPixelX = clamp(i32(tfX * f32(tfTexSize.x)), 0, i32(tfTexSize.x) - 1);
-            let tfPixelCoord = vec2<i32>(tfPixelX, 0);
-            
-            // 直接读取传输函数颜色
-            let color = textureLoad(inputTF, tfPixelCoord, 0);
-            
-            // 直接输出
-            textureStore(outputTexture, coord, color);
-        }
-    )";
+bool TransferFunctionTest::ComputeStage::InitUBO(wgpu::Device device, CS_Uniforms uniforms) 
+{
+    // 1. 创建计算着色器的Uniform Buffer
+    wgpu::BufferDescriptor uniformBufferDesc = {};
+    uniformBufferDesc.label = "Compute Uniform Buffer";
+    uniformBufferDesc.size = sizeof(CS_Uniforms);
+    uniformBufferDesc.usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst;
+    uniformBufferDesc.mappedAtCreation = false;
     
-    wgpu::ShaderModuleWGSLDescriptor csWGSLDesc = {};
-    csWGSLDesc.chain.sType = wgpu::SType::ShaderModuleWGSLDescriptor;
-    csWGSLDesc.chain.next = nullptr;
-    csWGSLDesc.code = computeShaderSource;
-
-    wgpu::ShaderModuleDescriptor csDesc = {};
-    csDesc.nextInChain = reinterpret_cast<const wgpu::ChainedStruct*>(&csWGSLDesc);
-    csDesc.label = "Compute Shader";
-    wgpu::ShaderModule computeShader = device.createShaderModule(csDesc);
-
-    if (!computeShader) {
-        std::cout << "[ERROR]::CreatePipline Failed to create compute shader module!" << std::endl;
+    uniformBuffer = device.createBuffer(uniformBufferDesc);
+    
+    if (!uniformBuffer) {
+        std::cout << "[ERROR]::InitUBO Failed to create uniform buffer" << std::endl;
         return false;
     }
     
-    // 创建计算管线
-    wgpu::ComputePipelineDescriptor computePipelineDesc = {};
-    computePipelineDesc.label = "Compute Pipeline";
-    computePipelineDesc.compute.module = computeShader;
-    computePipelineDesc.compute.entryPoint = "main";
-    pipeline = device.createComputePipeline(computePipelineDesc);
+    // 将Uniform数据写入缓冲区
+    device.getQueue().writeBuffer(uniformBuffer, 0, &uniforms, sizeof(CS_Uniforms));
+
+    return true;
+}
+
+bool TransferFunctionTest::ComputeStage::InitSSBO(wgpu::Device device, wgpu::Queue queue, const std::vector<SparsePoint>& sparsePoints) 
+{
+    if (sparsePoints.empty()) return false;
+
+    // 1. 创建稀疏点数据的存储缓冲区
+    wgpu::BufferDescriptor storageBufferDesc = {};
+    storageBufferDesc.label = "Sparse Points Buffer";
+    storageBufferDesc.size = sparsePoints.size() * sizeof(SparsePoint);
+    storageBufferDesc.usage = wgpu::BufferUsage::Storage | wgpu::BufferUsage::CopyDst;
+    storageBufferDesc.mappedAtCreation = false;
     
-    computeShader.release();
+    storageBuffer = device.createBuffer(storageBufferDesc);
+    
+    if (!storageBuffer) {
+        std::cout << "[ERROR]::InitSSBO Failed to create storage buffer" << std::endl;
+        return false;
+    }
+    
+    // 将稀疏点数据写入缓冲区
+    queue.writeBuffer(storageBuffer, 0, sparsePoints.data(), sparsePoints.size() * sizeof(SparsePoint));
+    
+    return true;
+}
+
+
+bool TransferFunctionTest::ComputeStage::CreatePipeline(wgpu::Device device) 
+{
+    
+    auto& mgr = PipelineManager::getInstance();
+    
+    pipeline = mgr.createComputePipeline()
+        .setDevice(device)
+        .setLabel("Transfer Function Compute Pipeline")
+        .setShader("../shaders/sparse_data.comp.wgsl", "main")
+        .build();
+
     
     if (!pipeline) {
         std::cout << "[ERROR]::CreatePipline Failed to create compute pipeline!" << std::endl;
@@ -244,7 +270,7 @@ bool TransferFunctionTest::ComputeStage::CreatePipeline(wgpu::Device device)
 
 bool TransferFunctionTest::ComputeStage::UpdateBindGroup(wgpu::Device device, wgpu::TextureView inputTF, wgpu::TextureView outputTexture) 
 {
-    if (!inputTF || !pipeline) return false;
+    if (!inputTF || !pipeline || !uniformBuffer || !storageBuffer) return false;  
     
     // 释放旧的绑定组
     if (data_bindGroup) 
@@ -260,14 +286,22 @@ bool TransferFunctionTest::ComputeStage::UpdateBindGroup(wgpu::Device device, wg
     
     // 创建新的绑定组
     {
-        wgpu::BindGroupEntry entries[1] = {};
+        wgpu::BindGroupEntry entries[3] = {};
         entries[0].binding = 0;
         entries[0].textureView = outputTexture;
-        
+        entries[1].binding = 1;
+        entries[1].buffer = uniformBuffer;
+        entries[1].offset = 0;
+        entries[1].size = sizeof(CS_Uniforms);
+        entries[2].binding = 2;
+        entries[2].buffer = storageBuffer;
+        entries[2].offset = 0;
+        entries[2].size = WGPU_WHOLE_SIZE;
+
         wgpu::BindGroupDescriptor desc = {};
         desc.label = "Compute Data Bind Group";
         desc.layout = pipeline.getBindGroupLayout(0);
-        desc.entryCount = 1;
+        desc.entryCount = 3;
         desc.entries = entries;
         
         data_bindGroup = device.createBindGroup(desc);
@@ -345,9 +379,9 @@ void TransferFunctionTest::ComputeStage::Release()
     }
 }
 
-bool TransferFunctionTest::RenderStage::Init(wgpu::Device device, wgpu::Queue queue, RS_Uniforms uniforms)
+bool TransferFunctionTest::RenderStage::Init(wgpu::Device device, wgpu::Queue queue, RS_Uniforms uniforms, float data_width, float data_height)
 {
-    if (!InitVBO(device, queue, 150.0, 450.0)) return false;
+    if (!InitVBO(device, queue, data_width, data_height)) return false;
     if (!InitUBO(device, uniforms)) return false;
     if (!InitSampler(device)) return false;
 
@@ -426,167 +460,25 @@ void TransferFunctionTest::RenderStage::UpdateUniforms(wgpu::Queue queue, RS_Uni
 
 bool TransferFunctionTest::RenderStage::CreatePipeline(wgpu::Device device, wgpu::TextureFormat swapChainFormat)
 {
-    // Vertex Shader
-    const char* vertexShaderSource = R"(
-        struct VertexInput {
-            @location(0) position: vec2<f32>,
-            @location(1) texCoord: vec2<f32>,
-        }
-        
-        struct Uniforms {
-            viewMatrix: mat4x4<f32>,
-            projMatrix: mat4x4<f32>,
-        };
 
-        struct VertexOutput {
-            @builtin(position) position: vec4<f32>,
-            @location(0) texCoord: vec2<f32>,
-        }
-        
-        @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-        
-        @vertex
-        fn main(input: VertexInput) -> VertexOutput {
-            var output: VertexOutput;
-            let world_pos = vec4<f32>(input.position, 0.0, 1.0);
-            output.position = uniforms.projMatrix * uniforms.viewMatrix * world_pos;
-            output.texCoord = input.texCoord;
-            return output;
-        }
-    )";
+    auto& mgr = PipelineManager::getInstance();
     
-    // Fragment Shader
-    const char* fragmentShaderSource = R"(
+    pipeline = mgr.createRenderPipeline()
+        .setDevice(device)
+        .setLabel("Transfer Function Render Pipeline")
+        .setVertexShader("../shaders/sparse_data.vert.wgsl", "main")
+        .setFragmentShader("../shaders/sparse_data.frag.wgsl", "main")
+        .setVertexLayout(VertexLayoutBuilder::createPositionTexCoord())
+        .setSwapChainFormat(swapChainFormat)
+        .setAlphaBlending()          // 使用预设的 Alpha 混合
+        .setReadOnlyDepth()          // 使用预设的只读深度
+        .build();
 
-        @group(0) @binding(1) var dataTexture: texture_2d<f32>;
-        @group(0) @binding(2) var dataSampler: sampler;
 
-        struct FragmentInput {
-            @location(0) uv: vec2<f32>,
-        }
-        
-        @fragment
-        fn main(input: FragmentInput) -> @location(0) vec4<f32> {
-            let sampledColor = textureSample(dataTexture, dataSampler, input.uv);
-            return sampledColor;  // 显示实际采样结果
-        }
-    )";
-    
-    std::cout << "[TransferFunctionTest] Creating render pipeline..." << std::endl;
-    
-    // 创建着色器模块
-    wgpu::ShaderModuleWGSLDescriptor vsWGSLDesc = {};
-    vsWGSLDesc.chain.sType = wgpu::SType::ShaderModuleWGSLDescriptor;
-    vsWGSLDesc.chain.next = nullptr;
-    vsWGSLDesc.code = vertexShaderSource;
-
-    wgpu::ShaderModuleDescriptor vsDesc = {};
-    vsDesc.nextInChain = reinterpret_cast<const wgpu::ChainedStruct*>(&vsWGSLDesc);
-    vsDesc.label = "Vertex Shader";
-    wgpu::ShaderModule vertexShader = device.createShaderModule(vsDesc);
-
-    wgpu::ShaderModuleWGSLDescriptor fsWGSLDesc = {};
-    fsWGSLDesc.chain.sType = wgpu::SType::ShaderModuleWGSLDescriptor;
-    fsWGSLDesc.chain.next = nullptr;
-    fsWGSLDesc.code = fragmentShaderSource;
-
-    wgpu::ShaderModuleDescriptor fsDesc = {};
-    fsDesc.nextInChain = reinterpret_cast<const wgpu::ChainedStruct*>(&fsWGSLDesc);
-    fsDesc.label = "Fragment Shader";
-    wgpu::ShaderModule fragmentShader = device.createShaderModule(fsDesc);
-    
-    if (!vertexShader || !fragmentShader) {
-        std::cout << "ERROR: Failed to create shader modules!" << std::endl;
-        return false;
-    }
-    
-    // 顶点布局
-    wgpu::VertexAttribute vertexAttributes[2] = {};
-    vertexAttributes[0].offset = 0;
-    vertexAttributes[0].shaderLocation = 0;
-    vertexAttributes[0].format = wgpu::VertexFormat::Float32x2;
-    vertexAttributes[1].offset = 2 * sizeof(float);
-    vertexAttributes[1].shaderLocation = 1;
-    vertexAttributes[1].format = wgpu::VertexFormat::Float32x2;
-    
-    wgpu::VertexBufferLayout vertexBufferLayout = {};
-    vertexBufferLayout.arrayStride = 4 * sizeof(float);
-    vertexBufferLayout.stepMode = wgpu::VertexStepMode::Vertex;
-    vertexBufferLayout.attributeCount = 2;
-    vertexBufferLayout.attributes = vertexAttributes;
-    
-    // 创建渲染管线
-    wgpu::RenderPipelineDescriptor renderPipelineDesc = {};
-    renderPipelineDesc.label = "Render Pipeline";
-    
-    renderPipelineDesc.vertex.module = vertexShader;
-    renderPipelineDesc.vertex.entryPoint = "main";
-    renderPipelineDesc.vertex.bufferCount = 1;
-    renderPipelineDesc.vertex.buffers = &vertexBufferLayout;
-    wgpu::StencilFaceState stencil{};
-    stencil.compare      = wgpu::CompareFunction::Always;   // 不用模板测试
-    stencil.failOp       = wgpu::StencilOperation::Keep;
-    stencil.depthFailOp  = wgpu::StencilOperation::Keep;
-    stencil.passOp       = wgpu::StencilOperation::Keep;
-    wgpu::DepthStencilState ds{};
-    ds.format            = wgpu::TextureFormat::Depth24Plus; // 必须和 Pass 一致
-    ds.depthWriteEnabled = false;                            // 2D 不写深度
-    ds.stencilFront      = stencil;
-    ds.stencilBack       = stencil;         // ✨ 必填
-    ds.stencilReadMask   = 0xFFFFFFFF;      // 合法掩码
-    ds.stencilWriteMask  = 0xFFFFFFFF;      // 合法掩码
-    ds.depthBias         = 0;
-    ds.depthBiasSlopeScale = 0.0f;
-    ds.depthBiasClamp    = 0.0f;
-    ds.depthCompare      = wgpu::CompareFunction::Always;    // 总是通过
-    renderPipelineDesc.depthStencil = &ds;
-
-    
-    wgpu::FragmentState fragmentState = {};
-    fragmentState.module = fragmentShader;
-    fragmentState.entryPoint = "main";
-    
-    // 创建Alpha混合状态
-    wgpu::BlendState blendState = {};
-    // RGB通道混合
-    blendState.color.operation = wgpu::BlendOperation::Add;
-    blendState.color.srcFactor = wgpu::BlendFactor::SrcAlpha;
-    blendState.color.dstFactor = wgpu::BlendFactor::OneMinusSrcAlpha;
-    // Alpha通道混合
-    blendState.alpha.operation = wgpu::BlendOperation::Add;
-    blendState.alpha.srcFactor = wgpu::BlendFactor::One;
-    blendState.alpha.dstFactor = wgpu::BlendFactor::OneMinusSrcAlpha;
-    wgpu::ColorTargetState colorTarget = {};
-    colorTarget.format = swapChainFormat;  
-    colorTarget.writeMask = wgpu::ColorWriteMask::All;
-    colorTarget.blend = &blendState;
-    
-    fragmentState.targetCount = 1;
-    fragmentState.targets = &colorTarget;
-    renderPipelineDesc.fragment = &fragmentState;
-    
-    wgpu::MultisampleState multisampleState = {};
-    multisampleState.count = 1;
-    multisampleState.mask = 0xFFFFFFFF;
-    multisampleState.alphaToCoverageEnabled = false;
-    renderPipelineDesc.multisample = multisampleState;
-    
-    renderPipelineDesc.primitive.topology = wgpu::PrimitiveTopology::TriangleStrip;
-    renderPipelineDesc.primitive.cullMode = wgpu::CullMode::None;
-    renderPipelineDesc.primitive.frontFace = wgpu::FrontFace::CCW;
-    renderPipelineDesc.primitive.stripIndexFormat = wgpu::IndexFormat::Undefined;
-    
-    pipeline = device.createRenderPipeline(renderPipelineDesc);
-    
     if (!pipeline) {
         std::cout << "ERROR: Failed to create render pipeline!" << std::endl;
-        vertexShader.release();
-        fragmentShader.release();
         return false;
     }
-    
-    vertexShader.release();
-    fragmentShader.release();
 
     return true;
 }

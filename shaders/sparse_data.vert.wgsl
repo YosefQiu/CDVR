@@ -1,26 +1,25 @@
+struct VertexInput {
+    @location(0) position: vec2<f32>,
+    @location(1) texCoord: vec2<f32>,
+}
+        
 struct Uniforms {
     viewMatrix: mat4x4<f32>,
     projMatrix: mat4x4<f32>,
-    gridWidth: f32,
-    gridHeight: f32,
-    minValue: f32,
-    maxValue: f32,
-}
-
-
-
-@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+};
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) texCoords: vec2<f32>,
+    @location(0) texCoord: vec2<f32>,
 }
+        
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
 
 @vertex
-fn vs_main(@location(0) pos: vec2<f32>, @location(1) texCoords: vec2<f32>) -> VertexOutput {
+fn main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    let world_pos = vec4<f32>(pos, 0.0, 1.0);
+    let world_pos = vec4<f32>(input.position, 0.0, 1.0);
     output.position = uniforms.projMatrix * uniforms.viewMatrix * world_pos;
-    output.texCoords = texCoords;
+    output.texCoord = input.texCoord;
     return output;
 }
