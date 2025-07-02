@@ -538,6 +538,7 @@ bool Application::InitWindowAndDevice(int width, int height, const char* title)
 		std::cout << "Device error: type " << type;
 		if (message) std::cout << " (" << message << ")";
 		std::cout << std::endl;
+        std::exit(EXIT_FAILURE);
 	});
 
 	m_queue = m_device.getQueue();

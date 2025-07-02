@@ -1,6 +1,7 @@
 // TransferFunctionTest.cpp
 #include "test.h"
 #include "PipelineManager.h"
+#include <algorithm>
 
 
 
@@ -73,31 +74,26 @@ bool TransferFunctionTest::InitDataFromBinary(const std::string& filename)
     m_CS_Uniforms.gridWidth = static_cast<float>(m_header.width);
     m_CS_Uniforms.gridHeight = static_cast<float>(m_header.height);
     m_CS_Uniforms.totalPoints = static_cast<uint32_t>(m_sparsePoints.size());
-    m_CS_Uniforms.searchRadius = 5.0f;
+    m_CS_Uniforms.searchRadius = std::ceil(std::sqrt(m_CS_Uniforms.gridWidth * m_CS_Uniforms.gridWidth + 
+                                               m_CS_Uniforms.gridHeight * m_CS_Uniforms.gridHeight));
     
     // 计算值的范围（用于颜色映射）
     ComputeValueRange();
 
     // TEST FOR KD-Tree
-    KDTreeBuilder builder;
-    m_KDTreeData = builder.buildKDTree(m_sparsePoints);
-    if (m_KDTreeData.totalNodes == 0) {
+    CompleteLeftBalancedKDTreeBuilder builder;
+    m_KDTreeData = builder.buildLeftBalancedKDTree(m_sparsePoints);
+    if (m_KDTreeData.totalPoints == 0) {
         std::cerr << "[ERROR]::TransferFunctionTest: Failed to build KD-Tree" << std::endl;
         return false;
     }
 
-    std::cout << "\n[TransferFunctionTest] Verifying KD-Tree..." << std::endl;
-    auto verificationResult = KDTreeVerifier::verifyKDTree(m_KDTreeData, m_sparsePoints);
-    
-    if (!verificationResult.isValid) {
-        std::cerr << "[ERROR] KD-Tree verification failed: " << verificationResult.errorMessage << std::endl;
-        return false;
-    }
-    
-    std::cout << "[TransferFunctionTest] KD-Tree verification passed!" << std::endl;
+    std::cout << "[TransferFunctionTest] KD-Tree built successfully!" << std::endl;
+    std::cout << "[TransferFunctionTest]   Total points: " << m_KDTreeData.points.size() << std::endl;
+    std::cout << "[TransferFunctionTest]   Number of levels: " << m_KDTreeData.numLevels << std::endl;
 
-    m_CS_Uniforms.rootNodeIndex = m_KDTreeData.rootIndex;
-    m_CS_Uniforms.totalNodes = m_KDTreeData.totalNodes;
+    m_CS_Uniforms.totalNodes = m_KDTreeData.points.size();
+    m_CS_Uniforms.numLevels = m_KDTreeData.numLevels;
     m_CS_Uniforms.interpolationMethod = 2; // 0=NN, 1=KNN avg, 2=KNN centroid, 3=KD-Tree NN
 
 
@@ -199,7 +195,7 @@ void TransferFunctionTest::UpdateUniforms(glm::mat4 viewMatrix, glm::mat4 projMa
 
 bool TransferFunctionTest::ComputeStage::Init(wgpu::Device device, wgpu::Queue queue, 
     const std::vector<SparsePoint>& sparsePoints, 
-    const KDTreeBuilder::KDTreeData& kdTreeData,
+    const CompleteLeftBalancedKDTreeBuilder::TreeData& kdTreeData,
     const CS_Uniforms uniforms)
 {
     if (!InitSSBO(device, queue, sparsePoints)) return false;
@@ -255,14 +251,18 @@ bool TransferFunctionTest::ComputeStage::InitSSBO(wgpu::Device device, wgpu::Que
     return true;
 }
 
-bool TransferFunctionTest::ComputeStage::InitKDTreeBuffers(wgpu::Device device, wgpu::Queue queue, const KDTreeBuilder::KDTreeData& kdTreeData)
+bool TransferFunctionTest::ComputeStage::InitKDTreeBuffers(wgpu::Device device, wgpu::Queue queue, 
+    const CompleteLeftBalancedKDTreeBuilder::TreeData& kdTreeData)
 {
-    if (kdTreeData.nodes.empty() || kdTreeData.points.empty()) return false;
+   if (kdTreeData.points.empty()) {
+        std::cout << "[ERROR]::InitKDTreeBuffers KD-Tree data is empty" << std::endl;
+        return false;
+    }
 
     // 1. 创建KD-Tree节点缓冲区
     wgpu::BufferDescriptor kdNodesBufferDesc = {};
-    kdNodesBufferDesc.label = "KD-Tree Nodes Buffer";
-    kdNodesBufferDesc.size = kdTreeData.nodes.size() * sizeof(GPUKDNode);
+    kdNodesBufferDesc.label = "KD-Tree Points Buffer";
+    kdNodesBufferDesc.size = kdTreeData.points.size() * sizeof(GPUPoint);
     kdNodesBufferDesc.usage = wgpu::BufferUsage::Storage | wgpu::BufferUsage::CopyDst;
     kdNodesBufferDesc.mappedAtCreation = false;
     
@@ -274,26 +274,9 @@ bool TransferFunctionTest::ComputeStage::InitKDTreeBuffers(wgpu::Device device, 
     }
     
     // 将KD-Tree节点数据写入缓冲区
-    queue.writeBuffer(kdNodesBuffer, 0, kdTreeData.nodes.data(), kdTreeData.nodes.size() * sizeof(GPUKDNode));
+    queue.writeBuffer(kdNodesBuffer, 0, kdTreeData.points.data(), kdTreeData.points.size() * sizeof(GPUPoint));
 
-    // 2. 创建叶节点点数据缓冲区
-    wgpu::BufferDescriptor leafPointsBufferDesc = {};
-    leafPointsBufferDesc.label = "KD-Tree Leaf Points Buffer";
-    leafPointsBufferDesc.size = kdTreeData.points.size() * sizeof(GPUPoint);
-    leafPointsBufferDesc.usage = wgpu::BufferUsage::Storage | wgpu::BufferUsage::CopyDst;
-    leafPointsBufferDesc.mappedAtCreation = false;
-    
-    leafPointsBuffer = device.createBuffer(leafPointsBufferDesc);
-    
-    if (!leafPointsBuffer) {
-        std::cout << "[ERROR]::InitKDTreeBuffers Failed to create KD-Tree leaf points buffer" << std::endl;
-        return false;
-    }
-    
-    // 将叶节点点数据写入缓冲区
-    queue.writeBuffer(leafPointsBuffer, 0, kdTreeData.points.data(), kdTreeData.points.size() * sizeof(GPUPoint));
-    
-    return true;
+    return kdNodesBuffer != nullptr;
 }
 
 
@@ -365,18 +348,14 @@ bool TransferFunctionTest::ComputeStage::CreatePipeline(wgpu::Device device) {
     auto group1Layout = device.createBindGroupLayout(group1Desc);
     
     // Group 2: KD-Tree data
-    wgpu::BindGroupLayoutEntry group2Entries[2] = {};
+    wgpu::BindGroupLayoutEntry group2Entries[1] = {};
     group2Entries[0].binding = 0;
     group2Entries[0].visibility = wgpu::ShaderStage::Compute;
     group2Entries[0].buffer.type = wgpu::BufferBindingType::ReadOnlyStorage;
-    
-    group2Entries[1].binding = 1;
-    group2Entries[1].visibility = wgpu::ShaderStage::Compute;
-    group2Entries[1].buffer.type = wgpu::BufferBindingType::ReadOnlyStorage;
-    
+    group2Entries[0].buffer.hasDynamicOffset = false;
     wgpu::BindGroupLayoutDescriptor group2Desc = {};
     group2Desc.label = "Group 2 Layout";
-    group2Desc.entryCount = 2;
+    group2Desc.entryCount = 1;
     group2Desc.entries = group2Entries;
     auto group2Layout = device.createBindGroupLayout(group2Desc);
     
@@ -482,15 +461,11 @@ bool TransferFunctionTest::ComputeStage::UpdateBindGroup(wgpu::Device device, wg
         entries[0].buffer = kdNodesBuffer;
         entries[0].offset = 0;
         entries[0].size = WGPU_WHOLE_SIZE;
-        entries[1].binding = 1;
-        entries[1].buffer = leafPointsBuffer;
-        entries[1].offset = 0;
-        entries[1].size = WGPU_WHOLE_SIZE;
 
         wgpu::BindGroupDescriptor desc = {};
         desc.label = "Compute KDTree Bind Group";
         desc.layout = pipeline.getBindGroupLayout(2);
-        desc.entryCount = 2;
+        desc.entryCount = 1;
         desc.entries = entries;
         
         KDTree_bindGroup = device.createBindGroup(desc);
