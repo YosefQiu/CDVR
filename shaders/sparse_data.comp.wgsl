@@ -271,6 +271,7 @@ fn insertPoint(result: ptr<function, MyKNNResult>, index: u32, dist: f32, value:
 fn exactStacklessTraversal(queryX: f32, queryY: f32, k: u32, maxSearchRadius: f32) -> MyKNNResult {
     var result: MyKNNResult;
     
+    
     // 初始化结果
     result.count = 0u;
     for (var i = 0u; i < 3u; i = i + 1u) {

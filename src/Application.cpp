@@ -1,5 +1,6 @@
 #include "Application.h"
 
+#include "GLFW/glfw3.h"
 #include "webgpu-utils.h"
 
 #include "test.h"
@@ -158,6 +159,9 @@ bool Application::IsRunning() {
 void Application::OnKey(int key, [[maybe_unused]] int scancode, int action, [[maybe_unused]] int mods)
 {
 	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+		glfwSetWindowShouldClose(m_window, true);
+	} 
+    else if (key == GLFW_KEY_Q && action == GLFW_PRESS) {
 		glfwSetWindowShouldClose(m_window, true);
 	} 
     else if (key == GLFW_KEY_F11 && action == GLFW_PRESS) {
