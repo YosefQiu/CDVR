@@ -53,6 +53,10 @@ void Application::MainLoop()
         {
             m_tfTest->UpdateUniforms(vMat, pMat);
         }
+
+        // if (m_volumeRenderingTest) {
+        //     m_volumeRenderingTest->UpdateUniforms(vMat, pMat, m_cameraController->GetCamera()->GetPosition());
+        // }
     }
     
     if (m_tfTest && m_transferFunctionWidget->changed()) {
@@ -124,6 +128,9 @@ void Application::MainLoop()
         m_tfTest->Render(renderPass);
     }
     
+    // if (m_volumeRenderingTest) {
+    //     m_volumeRenderingTest->Render(renderPass);
+    // }   
     
     UpdateGui(renderPass);
 
@@ -212,6 +219,9 @@ void Application::OnResize(int width, int height)
     glm::mat4 viewMatrix = m_cameraController->GetCamera()->GetViewMatrix();
     glm::mat4 projMatrix = m_cameraController->GetCamera()->GetProjMatrix();
     m_tfTest->OnWindowResize(viewMatrix, projMatrix);
+    if (m_volumeRenderingTest) {
+        // m_volumeRenderingTest->OnWindowResize(viewMatrix, projMatrix);
+    }
 
 
     // ImGui配置需要窗口逻辑尺寸，不是framebuffer尺寸
@@ -349,7 +359,6 @@ void Application::UpdateGui(wgpu::RenderPassEncoder renderPass)
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    // Build our UI - 只有一个主窗口
     {
         static bool show_demo_window = true;
         static bool show_transfer_function = true;
@@ -370,6 +379,69 @@ void Application::UpdateGui(wgpu::RenderPassEncoder renderPass)
         
         ImGui::Spacing();
         ImGui::Separator();
+
+        // 插值方法选择
+        ImGui::Text("Interpolation Method");
+        static int interpolation_method = 0; // 0 = KNN=1, 1 = KNN=3
+        
+        // 横向排列 radio buttons
+        if (ImGui::RadioButton("KNN = 1", interpolation_method == 0)) {
+            interpolation_method = 0;
+            if (m_tfTest) m_tfTest->SetInterpolationMethod(interpolation_method);
+        }
+        ImGui::SameLine(); // 同一行显示下一个控件
+        
+        if (ImGui::RadioButton("KNN = 3", interpolation_method == 1)) {
+            interpolation_method = 1;
+            if (m_tfTest) m_tfTest->SetInterpolationMethod(interpolation_method);
+        }
+        
+         ImGui::Text("Current K value: %d", interpolation_method == 0 ? 1 : 3);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Number of nearest neighbors used for interpolation");
+        }
+        
+        ImGui::Spacing();
+        ImGui::Separator();
+        
+        // 搜索半径控制
+        ImGui::Text("Search Radius");
+        static float search_radius = 5.0f;  // 默认值，根据你的需求调整
+        
+        // 方式1: 滑动条 (推荐)
+        auto max_range = 500.0f;
+        if (ImGui::SliderFloat("##SearchRadius", &search_radius, 0.1f, max_range, "%.2f")) {
+            // 当滑动条值改变时通知 m_tfTest
+            if (m_tfTest) {
+                m_tfTest->SetSearchRadius(search_radius);
+            }
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Radius for searching nearby data points");
+        }
+        
+        // 方式2: 可以同时提供输入框（可选）
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(80);
+        if (ImGui::InputFloat("##SearchRadiusInput", &search_radius, 0.1f, 1.0f, "%.2f")) {
+            // 限制范围
+            search_radius = std::max(0.1f, std::min(search_radius, 50.0f));
+            if (m_tfTest) {
+                m_tfTest->SetSearchRadius(search_radius);
+            }
+        }
+        
+        ImGui::Spacing();
+        ImGui::Separator();
+
+        // 可选：显示当前设置和帮助信息
+        ImGui::Text("Current K value: %d", interpolation_method == 0 ? 1 : 3);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Number of nearest neighbors used for interpolation");
+        }
+        
+        ImGui::Spacing();
+        ImGui::Separator();
         
         // 直接在这个窗口中显示 Transfer Function
         if (show_transfer_function && m_transferFunctionWidget) {
@@ -380,11 +452,6 @@ void Application::UpdateGui(wgpu::RenderPassEncoder renderPass)
             ImGui::Spacing();
             ImGui::Separator();
         }
-        
-        // // 性能信息
-        // ImGuiIO& io = ImGui::GetIO();
-        // ImGui::Text("Performance");
-        // ImGui::Text("Average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
         
         ImGui::End();
     }
@@ -444,7 +511,11 @@ void Application::OnTransferFunctionChanged()
     {
         m_tfTest->UpdateSSBO(tfTextureView);
     }
-   
+
+    if (m_volumeRenderingTest && tfTextureView) 
+    {
+        // m_volumeRenderingTest->UpdateSSBO(tfTextureView);
+    }
 }
 
 
@@ -701,6 +772,12 @@ bool Application::InitGeometry()
     glm::mat4 projMatrix = m_cameraController->GetCamera()->GetProjMatrix();
     m_tfTest->Initialize(viewMatrix, projMatrix);
     return m_tfTest != nullptr;
+
+    // m_volumeRenderingTest = std::make_unique<VolumeRenderingTest>(m_device, m_queue, m_swapChainFormat);
+    // glm::mat4 viewMatrix = m_cameraController->GetCamera()->GetViewMatrix();
+    // glm::mat4 projMatrix = m_cameraController->GetCamera()->GetProjMatrix();
+    // m_volumeRenderingTest->Initialize(viewMatrix, projMatrix);
+    // return m_volumeRenderingTest != nullptr;
 }
 
 void Application::TerminateGeometry()
@@ -708,4 +785,8 @@ void Application::TerminateGeometry()
     if (m_tfTest) {
         m_tfTest.reset();
     }
+
+    // if (m_volumeRenderingTest) {
+    //     m_volumeRenderingTest.reset();
+    // }
 }

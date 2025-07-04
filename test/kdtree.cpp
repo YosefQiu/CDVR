@@ -26,7 +26,7 @@ struct GPUPoint {
     float padding;
 };
 
-class CompleteLeftBalancedKDTreeBuilder {
+class KDTreeBuilder {
 private:
     struct BinaryTree {
         static int numLevelsFor(int numNodes) {
@@ -449,6 +449,65 @@ public:
         
         return result;
     }
+
+    static KNNResult TraverseKDTree(
+        const std::vector<GPUPoint>& nodes,
+        float queryX, float queryY,
+        uint32_t k,
+        float max_SearchRadius = std::numeric_limits<float>::max()) 
+        {
+            // current node: start at root
+            int N = static_cast<int>(nodes.size());
+            KNNResult result(k);
+            int curr = 0;
+            // previous node, initialize to 'parent' of root node
+            int prev = -1;
+            float maxSearchRadius = max_SearchRadius;
+            // repeat untill we break out
+            while (true) { 
+                int parent = (curr+1)/2-1; 
+                if (curr >= N) { 
+                    // we reached a child that does not exist; go back to parent 
+                    prev = curr; curr = parent; 
+                    continue; 
+                } 
+                bool from_parent = (prev < curr); 
+                if (from_parent) {
+                    processNode(curr); 
+                    // check if processing current node has led to 
+                    // a smaller search radius: 
+                    maxSearchRadius = possiblyShrunkenSearchRadius(); 
+                } 
+                // compute close and far child: 
+                int splitDim = splitDimOf(nodes ,curr); 
+                float splitPos = nodes[curr].coords[splitDim]; 
+                float signedDist = queryPoint[splitDim] - splitPos; 
+                int closeSide = (signedDist > 0.f); 
+                int closeChild = 2*curr+1+ closeSide; 
+                int farChild = 2*curr+2-closeSide;
+                bool farInRange = (fabsf(signedDist) <= maxSearchRadius); 
+                // compute next node to step to int next; 
+                if (from_parent) 
+                    next = closeChild; 
+                else if (prev == closeChild) 
+                    next = (farInRange ? farChild : parent); 
+                else { 
+                    next = parent; 
+                } 
+                if (next == -1) 
+                {
+                        // the only way this can happen is if the entire tree under 
+                    // node number 0 (i.e., the entire tree) is done traversing ,
+                    // and the root node tries to step to its parent ... in 
+                    // which case we have traversed the entire tree and are done. 
+                    return; 
+                }
+               
+                // aaaand ... do the step 
+                prev = curr; 
+                curr = next; 
+            }
+        }
 };
 
 // 测试数据生成器

@@ -94,7 +94,7 @@ bool TransferFunctionTest::InitDataFromBinary(const std::string& filename)
 
     m_CS_Uniforms.totalNodes = m_KDTreeData.points.size();
     m_CS_Uniforms.numLevels = m_KDTreeData.numLevels;
-    m_CS_Uniforms.interpolationMethod = 2; // 0=NN, 1=KNN avg, 2=KNN centroid, 3=KD-Tree NN
+    m_CS_Uniforms.interpolationMethod = 1; 
 
 
     return true;
@@ -191,6 +191,26 @@ void TransferFunctionTest::UpdateUniforms(glm::mat4 viewMatrix, glm::mat4 projMa
     m_RS_Uniforms.projMatrix = projMatrix;
     
    m_renderStage.UpdateUniforms(m_queue, m_RS_Uniforms);
+}
+
+void TransferFunctionTest::SetInterpolationMethod(int kValue)
+{
+    if (m_CS_Uniforms.interpolationMethod != (uint32_t)kValue) 
+    {
+        m_CS_Uniforms.interpolationMethod = kValue;
+        m_queue.writeBuffer(m_computeStage.uniformBuffer, 0, &m_CS_Uniforms, sizeof(CS_Uniforms));
+        m_needsUpdate = true;
+    }
+}
+
+void TransferFunctionTest::SetSearchRadius(float radius)
+{
+    if (m_CS_Uniforms.searchRadius != radius) 
+    {
+        m_CS_Uniforms.searchRadius = radius;
+        m_queue.writeBuffer(m_computeStage.uniformBuffer, 0, &m_CS_Uniforms, sizeof(CS_Uniforms));
+        m_needsUpdate = true;
+    }
 }
 
 bool TransferFunctionTest::ComputeStage::Init(wgpu::Device device, wgpu::Queue queue, 
@@ -302,15 +322,6 @@ bool TransferFunctionTest::ComputeStage::InitKDTreeBuffers(wgpu::Device device, 
 // }
 
 bool TransferFunctionTest::ComputeStage::CreatePipeline(wgpu::Device device) {
-    // 1. 创建shader module
-    auto& shaderMgr = ShaderManager::getInstance();
-    auto shaderModule = shaderMgr.loadShader(device, "../shaders/sparse_data.comp.wgsl");
-    if (!shaderModule) {
-        std::cout << "[ERROR] Failed to load compute shader!" << std::endl;
-        return false;
-    }
-    
-    // 2. 创建bind group layouts
     
     // Group 0: Output texture + Uniforms + Sparse points
     wgpu::BindGroupLayoutEntry group0Entries[3] = {};
@@ -359,29 +370,20 @@ bool TransferFunctionTest::ComputeStage::CreatePipeline(wgpu::Device device) {
     group2Desc.entries = group2Entries;
     auto group2Layout = device.createBindGroupLayout(group2Desc);
     
-    // 3. 创建pipeline layout
-    wgpu::BindGroupLayout layouts[3] = {group0Layout, group1Layout, group2Layout};
-    wgpu::PipelineLayoutDescriptor pipelineLayoutDesc = {};
-    pipelineLayoutDesc.label = "Compute Pipeline Layout";
-    pipelineLayoutDesc.bindGroupLayoutCount = 3;
-    pipelineLayoutDesc.bindGroupLayouts = reinterpret_cast<const WGPUBindGroupLayout*>(layouts);
-    auto pipelineLayout = device.createPipelineLayout(pipelineLayoutDesc);
+    auto& mgr = PipelineManager::getInstance();
+    pipeline = mgr.createComputePipeline()
+        .setDevice(device)
+        .setLabel("Transfer Function Compute Pipeline")
+        .setShader("../shaders/sparse_data.comp.wgsl", "main")
+        .setExplicitLayout(true)  // 启用显式布局
+        .addBindGroupLayout(group0Layout)
+        .addBindGroupLayout(group1Layout)
+        .addBindGroupLayout(group2Layout)
+        .build();
     
-    // 4. 创建compute pipeline
-    wgpu::ComputePipelineDescriptor pipelineDesc = {};
-    pipelineDesc.label = "Transfer Function Compute Pipeline";
-    pipelineDesc.layout = pipelineLayout;  // ← 关键：设置显式layout
-    pipelineDesc.compute.module = shaderModule;
-    pipelineDesc.compute.entryPoint = "main";
-
-    pipeline = device.createComputePipeline(pipelineDesc);
-
-    // 5. 清理
-    shaderModule.release();
     group0Layout.release();
     group1Layout.release();
     group2Layout.release();
-    pipelineLayout.release();
 
     if (!pipeline) {
         std::cout << "[ERROR] Failed to create compute pipeline!" << std::endl;

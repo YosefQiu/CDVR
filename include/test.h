@@ -107,6 +107,8 @@ public:
     void UpdateSSBO(wgpu::TextureView tfTextureView);
     void ComputeValueRange();
     void UpdateUniforms(glm::mat4 viewMatrix, glm::mat4 projMatrix);
+    void SetInterpolationMethod(int kValue);
+    void SetSearchRadius(float radius);
 protected:
     std::vector<SparsePoint> m_sparsePoints;
     DataHeader m_header;

@@ -422,20 +422,13 @@ fn kdTreeNearestNeighborInterpolationExact(dataPos: vec2<f32>) -> f32 {
 
 
 fn interpolateValue(dataPos: vec2<f32>) -> f32 {
-    // 方法选择：取消注释想要使用的方法，注释掉其他方法
-
-    // 方法1: 最近邻插值
-    let res1 = nearestNeighborInterpolation(dataPos);
-
-    // 方法2: KNN平均插值
-    // return knnAverageInterpolation(dataPos);
-    
-    // 方法3: KNN质心插值（反距离加权）
-    // return knnCentroidInterpolation(dataPos);
-
-    let res2 = kdTreeNearestNeighborInterpolationExact(dataPos);
-    
-    return abs(res1 - res2);
+    if (uniforms.interpolationMethod == 0u) {
+        return nearestNeighborInterpolation(dataPos);
+    }
+    else if (uniforms.interpolationMethod == 1u) {
+        return knnCentroidInterpolation(dataPos);
+    }
+    return 0.0;
 }
 
 
@@ -473,7 +466,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         color = getColorFromTF(normalized);
     }
 
-    color = vec4<f32>(interpolatedValue, interpolatedValue, interpolatedValue, 1.0);
+    // color = vec4<f32>(interpolatedValue, interpolatedValue, interpolatedValue, 1.0);
     
     textureStore(outputTexture, vec2<i32>(global_id.xy), color);
 }

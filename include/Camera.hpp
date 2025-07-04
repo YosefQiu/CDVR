@@ -83,7 +83,9 @@ public:
             m_position += delta.x * right + delta.y * m_up + delta.z * forward;
         }
     }
-
+    glm::vec3 GetPosition() const { return m_position; }
+    glm::vec3 GetTarget() const { return m_target; }
+    glm::vec3 GetUp() const { return m_up; }
     glm::mat4 GetViewMatrix() const {
         if (m_mode == CameraMode::Ortho2D) {
             // 2D 模式的视图矩阵

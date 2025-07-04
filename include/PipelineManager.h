@@ -200,6 +200,8 @@ public:
     ComputePipelineBuilder& setShader(const std::string& path, const std::string& entry = "main");
     ComputePipelineBuilder& setShaderSource(const std::string& source, const std::string& entry = "main");
     ComputePipelineBuilder& setEntry(const std::string& entry);
+    ComputePipelineBuilder& setExplicitLayout(bool useExplicit);
+    ComputePipelineBuilder& addBindGroupLayout(const wgpu::BindGroupLayout& layout);
     wgpu::ComputePipeline build();
 
 private:
@@ -208,7 +210,9 @@ private:
     std::string m_shaderPath;
     std::string m_shaderSource;
     std::string m_entry = "main";
+    std::vector<wgpu::BindGroupLayout> m_bindGroupLayouts;
     bool m_useShaderPath = true;
+    bool m_useExplicitLayout = false;
 };
 
 class PipelineManager {

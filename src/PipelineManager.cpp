@@ -258,6 +258,16 @@ ComputePipelineBuilder& ComputePipelineBuilder::setEntry(const std::string& entr
     return *this;
 }
 
+ComputePipelineBuilder& ComputePipelineBuilder::addBindGroupLayout(const wgpu::BindGroupLayout& layout) {
+    m_bindGroupLayouts.push_back(layout);
+    return *this;
+}
+
+ComputePipelineBuilder& ComputePipelineBuilder::setExplicitLayout(bool useExplicit) {
+    m_useExplicitLayout = useExplicit;
+    return *this;
+}
+
 ComputePipelineBuilder& ComputePipelineBuilder::setShader(const std::string& path, const std::string& entry) {
     m_shaderPath = path;
     m_entry = entry;
@@ -298,6 +308,25 @@ wgpu::ComputePipeline ComputePipelineBuilder::build() {
     desc.label = m_label.c_str();
     desc.compute.module = shader;
     desc.compute.entryPoint = m_entry.c_str();
+
+    wgpu::PipelineLayout pipelineLayout = nullptr;
+    
+    if (m_useExplicitLayout && !m_bindGroupLayouts.empty()) {
+        wgpu::PipelineLayoutDescriptor layoutDesc = {};
+        layoutDesc.label = (m_label + " Layout").c_str();
+        layoutDesc.bindGroupLayoutCount = m_bindGroupLayouts.size();
+        layoutDesc.bindGroupLayouts = reinterpret_cast<const WGPUBindGroupLayout*>(m_bindGroupLayouts.data());
+        
+        pipelineLayout = m_device.createPipelineLayout(layoutDesc);
+        if (!pipelineLayout) {
+            std::cerr << "[ERROR] ComputePipelineBuilder: Failed to create pipeline layout!" << std::endl;
+            shader.release();
+            return nullptr;
+        }
+        
+        desc.layout = pipelineLayout;
+    }
+    // 如果不使用显式布局，WebGPU会自动从着色器推断
     
     // 创建管线
     wgpu::ComputePipeline pipeline = m_device.createComputePipeline(desc);

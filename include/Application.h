@@ -4,6 +4,7 @@
 #include "TFWidget.h"
 #include "CameraController.h"
 #include "test.h"
+#include "VolumeRenderingTest.h"
 struct GLFWwindow;
 
 class Application
@@ -63,7 +64,9 @@ private:
     int m_width = 0;
     int m_height = 0;
     std::unique_ptr<wgpu::ErrorCallback> m_errorCallbackHandle;
-    std::unique_ptr<TransferFunctionTest> m_tfTest;
+    
     std::unique_ptr<CameraController> m_cameraController;
     std::unique_ptr<tfnw::WebGPUTransferFunctionWidget> m_transferFunctionWidget;
+    std::unique_ptr<VolumeRenderingTest> m_volumeRenderingTest;
+    std::unique_ptr<TransferFunctionTest> m_tfTest;
 };
