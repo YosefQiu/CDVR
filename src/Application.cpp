@@ -390,13 +390,18 @@ void Application::UpdateGui(wgpu::RenderPassEncoder renderPass)
             if (m_tfTest) m_tfTest->SetInterpolationMethod(interpolation_method);
         }
         ImGui::SameLine(); // 同一行显示下一个控件
-        
         if (ImGui::RadioButton("KNN = 3", interpolation_method == 1)) {
             interpolation_method = 1;
             if (m_tfTest) m_tfTest->SetInterpolationMethod(interpolation_method);
         }
-        
-         ImGui::Text("Current K value: %d", interpolation_method == 0 ? 1 : 3);
+        ImGui::SameLine(); // 同一行显示下一个控件
+        if (ImGui::RadioButton("KNN = 5", interpolation_method == 2)) {
+            interpolation_method = 2;
+            if (m_tfTest) m_tfTest->SetInterpolationMethod(interpolation_method);
+        }
+
+
+        ImGui::Text("Current K value: %d", interpolation_method == 0 ? 1 : interpolation_method == 1 ? 3 : 5);
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Number of nearest neighbors used for interpolation");
         }

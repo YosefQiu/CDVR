@@ -25,22 +25,12 @@ struct Uniforms {
     padding3: f32,
 };
 
-struct MyKNNResult {
-    indices: array<u32, 3>,
-    distances: array<f32, 3>,
-    values: array<f32, 3>,
-    count: u32,
-};
-
-
 struct GPUPoint {
     x: f32,
     y: f32,
     value: f32,
     padding: f32
 };
-
-
 
 @group(0) @binding(0) var outputTexture: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(1) var<uniform> uniforms: Uniforms;
@@ -63,6 +53,14 @@ fn distance2D(x1: f32, y1: f32, x2: f32, y2: f32) -> f32 {
 fn distanceVec2(p1: vec2<f32>, p2: vec2<f32>) -> f32 {
     return distance(p1, p2);
 }
+
+struct MyKNNResult {
+    indices: array<u32, 3>,
+    distances: array<f32, 3>,
+    values: array<f32, 3>,
+    count: u32,
+};
+
 
 // 安全的KNN搜索函数
 fn findKNN(dataPos: vec2<f32>, k: u32) -> MyKNNResult {
@@ -201,6 +199,7 @@ fn knnCentroidInterpolation(dataPos: vec2<f32>) -> f32 {
     return weightedSum / weightSum;
 }
 
+// KDTree的暴力最近邻搜索
 fn bruteNearestKD(query: vec2<f32>) -> f32 {
     var minDist = 1e30;
     var bestValue = 0.0;
@@ -214,7 +213,6 @@ fn bruteNearestKD(query: vec2<f32>) -> f32 {
     }
     return bestValue;
 }
-
 
 // 二进制树辅助函数（对应CPU的BinaryTree）
 fn levelOf(nodeID: i32) -> i32 {
@@ -358,7 +356,7 @@ fn getCoord(point: vec2<f32>, dim: i32) -> f32 {
     return select(point.x, point.y, dim != 0);
 }
 
-// KDTree遍历函数（严格对应CPU版本的traverse_stack_free）
+// KDTree遍历函数
 fn kdTreeTraverseStackFree(
     result: ptr<function, FixedCandidateList>, 
     queryPoint: vec2<f32>, 
@@ -367,7 +365,7 @@ fn kdTreeTraverseStackFree(
 ) {
     let epsErr = 1.0 + eps;
     let numDims = 2;
-    var cullDist = 500.0;
+    var cullDist = uniforms.searchRadius * uniforms.searchRadius;
     
     var prev = -1;
     var curr = 0;
@@ -376,12 +374,6 @@ fn kdTreeTraverseStackFree(
         let parent = (curr + 1) / 2 - 1;
         
         if (curr >= N) {
-            // in some (rare) cases it's possible that below traversal
-            // logic will go to a "close child", but may actually only
-            // have a far child. In that case it's easiest to fix this
-            // right here, pretend we've done that (non-existent) close
-            // child, and let parent pick up traversal as if it had been
-            // done.
             prev = curr;
             curr = parent;
             continue;
@@ -422,15 +414,6 @@ fn kdTreeTraverseStackFree(
             // done, and we can only go up.
             next = parent;
         } else {
-            // we didn't come from any child, so must be coming from a
-            // parent... we've already been processed ourselves just now,
-            // so next stop is to look at the children (unless there
-            // aren't any). this still leaves the case that we might have
-            // a child, but only a far child, and this far child may or
-            // may not be in range ... we'll fix that by just going to
-            // near child *even if* only the far child exists, and have
-            // that child do a dummy traversal of that missing child, then
-            // pick up on the far-child logic when we return.
             if (child < N) {
                 next = currCloseChild;
             } else {
@@ -479,16 +462,51 @@ fn kdTreeNearestNeighborInterpolation(dataPos: vec2<f32>) -> f32 {
     return -1.0;
 }
 
-// 使用KDTree的KNN质心插值（反距离加权）
-fn kdTreeKNNCentroidInterpolation(dataPos: vec2<f32>) -> f32 {
-    var knnResult = kdTreeKNNSearch(dataPos, 3, 500.0);
+// // 使用KDTree的KNN质心插值（反距离加权）
+// fn kdTreeKNNCentroidInterpolation(dataPos: vec2<f32>) -> f32 {
+//     var knnResult = kdTreeKNNSearch(dataPos, 3, uniforms.searchRadius);
+    
+//     let firstPointID = getPointID(&knnResult, 0);
+//     if (firstPointID < 0) {
+//         return -1.0;
+//     }
+    
+//     // 检查是否有重合点
+//     let firstDist2 = getDist2(&knnResult, 0);
+//     if (firstDist2 < 0.0001) {
+//         return kdTreePoints[firstPointID].value;
+//     }
+    
+//     var weightedSum = 0.0;
+//     var weightSum = 0.0;
+    
+//     for (var i = 0; i < 3; i++) {
+//         let pointID = getPointID(&knnResult, i);
+//         if (pointID >= 0 && pointID < i32(uniforms.totalNodes)) {
+//             let dist2 = getDist2(&knnResult, i);
+//             if (dist2 > 0.0001) {  // 避免除零
+//                 let weight = 1.0 / dist2;
+//                 weightedSum += kdTreePoints[pointID].value * weight;
+//                 weightSum += weight;
+//             }
+//         }
+//     }
+    
+//     if (weightSum > 0.0) {
+//         return weightedSum / weightSum;
+//     }
+    
+//     return -1.0;
+// }
+
+fn kdTreeIDWWithPower(dataPos: vec2<f32>, k: i32, power: f32) -> f32 {
+    var knnResult = kdTreeKNNSearch(dataPos, k, uniforms.searchRadius);
     
     let firstPointID = getPointID(&knnResult, 0);
     if (firstPointID < 0) {
         return -1.0;
     }
     
-    // 检查是否有重合点
     let firstDist2 = getDist2(&knnResult, 0);
     if (firstDist2 < 0.0001) {
         return kdTreePoints[firstPointID].value;
@@ -497,12 +515,13 @@ fn kdTreeKNNCentroidInterpolation(dataPos: vec2<f32>) -> f32 {
     var weightedSum = 0.0;
     var weightSum = 0.0;
     
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < k; i++) {
         let pointID = getPointID(&knnResult, i);
         if (pointID >= 0 && pointID < i32(uniforms.totalNodes)) {
             let dist2 = getDist2(&knnResult, i);
-            if (dist2 > 0.0001) {  // 避免除零
-                let weight = 1.0 / dist2;
+            if (dist2 > 0.0001) {
+                let dist = sqrt(dist2);
+                let weight = 1.0 / pow(dist, power);  // 可调整的幂次
                 weightedSum += kdTreePoints[pointID].value * weight;
                 weightSum += weight;
             }
@@ -516,241 +535,16 @@ fn kdTreeKNNCentroidInterpolation(dataPos: vec2<f32>) -> f32 {
     return -1.0;
 }
 
-// 栈条目结构
-struct StackEntry {
-    nodeID: i32,
-    minBounds: vec2<f32>,
-    maxBounds: vec2<f32>,
-    splitDim: i32,
-};
-
-// 固定大小的栈
-struct TraversalStack {
-    entries: array<StackEntry, 64>,  // 32层深度应该足够
-    top: i32,
-};
-
-// 初始化栈
-fn initStack() -> TraversalStack {
-    var stack: TraversalStack;
-    stack.top = -1;
-    return stack;
-}
-
-// 入栈
-fn pushStack(stack: ptr<function, TraversalStack>, entry: StackEntry) -> bool {
-    if ((*stack).top < 31) {
-        (*stack).top++;
-        (*stack).entries[(*stack).top] = entry;
-        return true;
-    }
-    return false;  // 栈满
-}
-
-// 出栈
-fn popStack(stack: ptr<function, TraversalStack>) -> StackEntry {
-    var entry: StackEntry;
-    if ((*stack).top >= 0) {
-        entry = (*stack).entries[(*stack).top];
-        (*stack).top--;
-    } else {
-        entry.nodeID = -1;  // 标记为无效
-    }
-    return entry;
-}
-
-// 检查栈是否为空
-fn isStackEmpty(stack: ptr<function, TraversalStack>) -> bool {
-    return (*stack).top < 0;
-}
-
-// 获取左子节点ID
-fn getLeftChild(nodeID: i32, totalNodes: i32) -> i32 {
-    let leftChild = 2 * nodeID + 1;
-    return select(-1, leftChild, leftChild < totalNodes);
-}
-
-// 获取右子节点ID
-fn getRightChild(nodeID: i32, totalNodes: i32) -> i32 {
-    let rightChild = 2 * nodeID + 2;
-    return select(-1, rightChild, rightChild < totalNodes);
-}
-
-// 计算点到边界框的最小距离平方
-fn distanceToBox(point: vec2<f32>, minBounds: vec2<f32>, maxBounds: vec2<f32>) -> f32 {
-    let dx = max(0.0, max(minBounds.x - point.x, point.x - maxBounds.x));
-    let dy = max(0.0, max(minBounds.y - point.y, point.y - maxBounds.y));
-    return dx * dx + dy * dy;
-}
-
-// 左序平衡KDTree遍历（纯栈版本，无递归）
-fn kdTreeTraverseLeftOrder(
-    result: ptr<function, FixedCandidateList>,
-    queryPoint: vec2<f32>,
-    N: i32,
-    worldBounds: vec4<f32>  // (minX, minY, maxX, maxY)
-) {
-    if (N <= 0) {
-        return;
-    }
-    
-    var stack = initStack();
-    
-    // 初始化根节点并入栈
-    var rootEntry: StackEntry;
-    rootEntry.nodeID = 0;
-    rootEntry.minBounds = vec2<f32>(worldBounds.x, worldBounds.y);
-    rootEntry.maxBounds = vec2<f32>(worldBounds.z, worldBounds.w);
-    rootEntry.splitDim = 0;  // 根节点从x维度开始
-    
-    if (!pushStack(&stack, rootEntry)) {
-        return;  // 栈满，无法继续
-    }
-    
-    var iterationCount = 0;
-    let maxIterations = N * 3;  // 防止无限循环
-    
-    // 主循环：栈不为空就继续处理
-    while (!isStackEmpty(&stack) && iterationCount < maxIterations) {
-        iterationCount++;
-        
-        // 从栈中取出一个节点
-        let current = popStack(&stack);
-        if (current.nodeID < 0 || current.nodeID >= N) {
-            continue;
-        }
-        
-        // 获取当前节点
-        let currentNode = kdTreePoints[current.nodeID];
-        let currentPoint = vec2<f32>(currentNode.x, currentNode.y);
-        
-        // 处理当前节点（加入候选列表）
-        let sqrDist = sqrDistance2D(queryPoint, currentPoint);
-        let cullDist = processCandidate(result, current.nodeID, sqrDist);
-        
-        // 计算分割平面
-        let splitValue = getCoord(currentPoint, current.splitDim);
-        let queryValue = getCoord(queryPoint, current.splitDim);
-        
-        // 获取子节点
-        let leftChild = getLeftChild(current.nodeID, N);
-        let rightChild = getRightChild(current.nodeID, N);
-        
-        // 如果没有子节点，继续下一个栈条目
-        if (leftChild < 0 && rightChild < 0) {
-            continue;
-        }
-        
-        // 计算左右子空间的边界
-        var leftMinBounds = current.minBounds;
-        var leftMaxBounds = current.maxBounds;
-        var rightMinBounds = current.minBounds;
-        var rightMaxBounds = current.maxBounds;
-        
-        if (current.splitDim == 0) {
-            // 按x分割
-            leftMaxBounds.x = splitValue;
-            rightMinBounds.x = splitValue;
-        } else {
-            // 按y分割
-            leftMaxBounds.y = splitValue;
-            rightMinBounds.y = splitValue;
-        }
-        
-        // 计算下一层的分割维度
-        let nextSplitDim = (current.splitDim + 1) % 2;
-        
-        // 决定访问顺序：先访问查询点所在的一侧
-        let queryOnLeft = queryValue <= splitValue;
-        
-        // 计算到各个子空间的最小距离
-        let leftMinDist2 = distanceToBox(queryPoint, leftMinBounds, leftMaxBounds);
-        let rightMinDist2 = distanceToBox(queryPoint, rightMinBounds, rightMaxBounds);
-        
-        // 策略：先入栈远的子节点，后入栈近的子节点
-        // 这样栈顶总是最近的子节点，优先处理
-        
-        if (queryOnLeft) {
-            // 查询点在左侧，右侧是远侧
-            if (rightChild >= 0 && rightMinDist2 < cullDist) {
-                var rightEntry: StackEntry;
-                rightEntry.nodeID = rightChild;
-                rightEntry.minBounds = rightMinBounds;
-                rightEntry.maxBounds = rightMaxBounds;
-                rightEntry.splitDim = nextSplitDim;
-                pushStack(&stack, rightEntry);
-            }
-            
-            // 左侧是近侧，后入栈（优先处理）
-            if (leftChild >= 0 && leftMinDist2 < cullDist) {
-                var leftEntry: StackEntry;
-                leftEntry.nodeID = leftChild;
-                leftEntry.minBounds = leftMinBounds;
-                leftEntry.maxBounds = leftMaxBounds;
-                leftEntry.splitDim = nextSplitDim;
-                pushStack(&stack, leftEntry);
-            }
-        } else {
-            // 查询点在右侧，左侧是远侧
-            if (leftChild >= 0 && leftMinDist2 < cullDist) {
-                var leftEntry: StackEntry;
-                leftEntry.nodeID = leftChild;
-                leftEntry.minBounds = leftMinBounds;
-                leftEntry.maxBounds = leftMaxBounds;
-                leftEntry.splitDim = nextSplitDim;
-                pushStack(&stack, leftEntry);
-            }
-            
-            // 右侧是近侧，后入栈（优先处理）
-            if (rightChild >= 0 && rightMinDist2 < cullDist) {
-                var rightEntry: StackEntry;
-                rightEntry.nodeID = rightChild;
-                rightEntry.minBounds = rightMinBounds;
-                rightEntry.maxBounds = rightMaxBounds;
-                rightEntry.splitDim = nextSplitDim;
-                pushStack(&stack, rightEntry);
-            }
-        }
-    }
-}
-
-// 修改的KNN搜索函数
-fn kdTreeKNNSearchLeftOrder(queryPoint: vec2<f32>, k: i32, searchRadius: f32, worldBounds: vec4<f32>) -> FixedCandidateList {
-    var result = initCandidateList(searchRadius, k);
-    
-    if (uniforms.totalNodes > 0u) {
-        kdTreeTraverseLeftOrder(&result, queryPoint, i32(uniforms.totalNodes), worldBounds);
-    }
-    
-    return result;
-}
-
-
-// 更新的最近邻插值函数
-fn kdTreeNearestNeighborInterpolationLeftOrder(dataPos: vec2<f32>) -> f32 {
-    // 设置世界边界
-    let worldBounds = vec4<f32>(0.0, 0.0, uniforms.gridWidth, uniforms.gridHeight);
-    
-    var knnResult = kdTreeKNNSearchLeftOrder(dataPos, 1, uniforms.searchRadius, worldBounds);
-    
-    let pointID = getPointID(&knnResult, 0);
-    if (pointID >= 0 && pointID < i32(uniforms.totalNodes)) {
-        let kdtreeValue = kdTreePoints[pointID].value;
-        let bruteValue = bruteNearestKD(dataPos);
-        let err = abs(kdtreeValue - bruteValue);  // 返回差值用于验证
-        return kdtreeValue;
-    }
-    
-    return -1.0;
-}
-
 
 fn interpolateValue(dataPos: vec2<f32>) -> f32 {
     if (uniforms.interpolationMethod == 0u) {
         return kdTreeNearestNeighborInterpolation(dataPos);
     }
     else if (uniforms.interpolationMethod == 1u) {
-        return kdTreeNearestNeighborInterpolation(dataPos);
+        return kdTreeIDWWithPower(dataPos, 3, 2.0);
+    }
+    else if (uniforms.interpolationMethod == 2u) {
+        return kdTreeIDWWithPower(dataPos, 5, 2.0);
     }
     return 0.0;
 }
@@ -790,7 +584,5 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         color = getColorFromTF(normalized);
     }
 
-    // color = vec4<f32>(interpolatedValue, interpolatedValue, interpolatedValue, 1.0);
-    
     textureStore(outputTexture, vec2<i32>(global_id.xy), color);
 }

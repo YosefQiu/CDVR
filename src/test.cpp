@@ -100,7 +100,7 @@ bool TransferFunctionTest::InitDataFromBinary(const std::string& filename)
 
     m_CS_Uniforms.totalNodes = m_KDTreeData.points.size();
     m_CS_Uniforms.numLevels = m_KDTreeData.numLevels;
-    m_CS_Uniforms.interpolationMethod = 1; 
+    m_CS_Uniforms.interpolationMethod = 0; 
 
     // int test_w = 150 * 1;
     // int test_h = 450 * 1;
