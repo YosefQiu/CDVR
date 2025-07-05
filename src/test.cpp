@@ -1,8 +1,10 @@
 // TransferFunctionTest.cpp
 #include "test.h"
+#include "KDTreeWrapper.h"
 #include "PipelineManager.h"
 #include <algorithm>
 
+#include "stb_image_write.h"
 
 
 TransferFunctionTest::TransferFunctionTest(wgpu::Device device, wgpu::Queue queue, wgpu::TextureFormat swapChainFormat)
@@ -81,14 +83,18 @@ bool TransferFunctionTest::InitDataFromBinary(const std::string& filename)
     ComputeValueRange();
 
     // TEST FOR KD-Tree
-    CompleteLeftBalancedKDTreeBuilder builder;
-    m_KDTreeData = builder.buildLeftBalancedKDTree(m_sparsePoints);
-    if (m_KDTreeData.totalPoints == 0) {
+    KDTreeBuilder builder;
+    if (builder.buildTree(m_sparsePoints)) 
+    {
+        m_KDTreeData.points = builder.getGPUPoints();
+        m_KDTreeData.numLevels = builder.getNumLevels();
+    }
+    else 
+    {
         std::cerr << "[ERROR]::TransferFunctionTest: Failed to build KD-Tree" << std::endl;
         return false;
     }
-
-    std::cout << "[TransferFunctionTest] KD-Tree built successfully!" << std::endl;
+ 
     std::cout << "[TransferFunctionTest]   Total points: " << m_KDTreeData.points.size() << std::endl;
     std::cout << "[TransferFunctionTest]   Number of levels: " << m_KDTreeData.numLevels << std::endl;
 
@@ -96,7 +102,50 @@ bool TransferFunctionTest::InitDataFromBinary(const std::string& filename)
     m_CS_Uniforms.numLevels = m_KDTreeData.numLevels;
     m_CS_Uniforms.interpolationMethod = 1; 
 
-
+    // int test_w = 150 * 1;
+    // int test_h = 450 * 1;
+    // unsigned char r = 0, g = 0, b = 0;
+    // std::vector<unsigned char> image(test_w * test_h * 3);
+    // for (auto h_idx = 0; h_idx < test_h; h_idx++) 
+    // {
+    //     for (auto w_idx = 0; w_idx < test_w; w_idx++) 
+    //     {
+    //         int pixel_idx = h_idx * test_w + w_idx;
+    //         // KDTree 遍历
+    //         SparsePoint queryPoint = {static_cast<float>(w_idx), static_cast<float>(h_idx), 0.0f, 0.0f};
+    //         std::vector<GPUPoint> res;
+    //         std::vector<float> distances;
+    //         bool success = builder.knnSearch<1>(queryPoint, m_CS_Uniforms.searchRadius, res, distances);
+    //         if (success)
+    //         {
+    //             auto value = res[0].value;
+    //             float t = (value - m_CS_Uniforms.minValue) / (m_CS_Uniforms.maxValue - m_CS_Uniforms.minValue);
+                
+    //             if (t < 0.5f) 
+    //             {
+    //                 // Cool side (蓝色到白色)
+    //                 float s = t * 2.0f; // [0, 1]
+    //                 r = static_cast<unsigned char>(59 + s * (255 - 59));     // 从深蓝到白
+    //                 g = static_cast<unsigned char>(76 + s * (255 - 76));     // 从深蓝到白
+    //                 b = static_cast<unsigned char>(192 + s * (255 - 192));   // 从蓝色到白
+    //             } 
+    //             else 
+    //             {
+    //                 // Warm side (白色到红色)
+    //                 float s = (t - 0.5f) * 2.0f; // [0, 1]
+    //                 r = static_cast<unsigned char>(255);                      // 保持红色通道满值
+    //                 g = static_cast<unsigned char>(255 - s * (255 - 33));    // 从白到红橙
+    //                 b = static_cast<unsigned char>(255 - s * (255 - 30));    // 从白到红
+    //             }
+    //         }
+    //         image[pixel_idx * 3 + 0] = r;
+    //         image[pixel_idx * 3 + 1] = g;
+    //         image[pixel_idx * 3 + 2] = b;
+    //     }
+    // }
+    // stbi_write_png("kdtree_result.png", test_w, test_h, 3, image.data(), test_w * 3);
+    // std::cout << "Saved kdtree_result.png" << std::endl;    
+    // exit(0);
     return true;
 }
 
@@ -215,7 +264,7 @@ void TransferFunctionTest::SetSearchRadius(float radius)
 
 bool TransferFunctionTest::ComputeStage::Init(wgpu::Device device, wgpu::Queue queue, 
     const std::vector<SparsePoint>& sparsePoints, 
-    const CompleteLeftBalancedKDTreeBuilder::TreeData& kdTreeData,
+    const KDTreeBuilder::TreeData& kdTreeData,
     const CS_Uniforms uniforms)
 {
     if (!InitSSBO(device, queue, sparsePoints)) return false;
@@ -272,7 +321,7 @@ bool TransferFunctionTest::ComputeStage::InitSSBO(wgpu::Device device, wgpu::Que
 }
 
 bool TransferFunctionTest::ComputeStage::InitKDTreeBuffers(wgpu::Device device, wgpu::Queue queue, 
-    const CompleteLeftBalancedKDTreeBuilder::TreeData& kdTreeData)
+    const KDTreeBuilder::TreeData& kdTreeData)
 {
    if (kdTreeData.points.empty()) {
         std::cout << "[ERROR]::InitKDTreeBuffers KD-Tree data is empty" << std::endl;

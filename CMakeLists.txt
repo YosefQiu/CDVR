@@ -16,6 +16,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "")
 add_subdirectory(third/webgpu)
 add_subdirectory(third/glfw3webgpu)
 add_subdirectory(third/imgui)
+add_subdirectory(third/KDTree/kdtree)
 include_directories(third/glm)
 include_directories(third/stb)
 
@@ -38,7 +39,7 @@ ADD_EXECUTABLE(
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include)
-TARGET_LINK_LIBRARIES(${PROJECT_NAME} PRIVATE glfw webgpu glfw3webgpu imgui)
+TARGET_LINK_LIBRARIES(${PROJECT_NAME} PRIVATE glfw webgpu glfw3webgpu imgui kdtree)
 target_copy_webgpu_binaries(${PROJECT_NAME})
 
 set_target_properties(${PROJECT_NAME} PROPERTIES
@@ -48,15 +49,16 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 	COMPILE_WARNING_AS_ERROR OFF
 )
 
-if (MSVC)
-	target_compile_options(${PROJECT_NAME} PRIVATE /W4)
-else()
-	target_compile_options(${PROJECT_NAME} PRIVATE
-    -Wall -Wextra -pedantic
-    -Wunused-variable
-    -Wno-error=unused-parameter
-	-Wdelete-non-abstract-non-virtual-dtor
-)
+if (MSVC) 
+	target_compile_options(${PROJECT_NAME} PRIVATE /W4) 
+else() 
+	target_compile_options(${PROJECT_NAME} PRIVATE     
+        -Wall -Wextra -pedantic     
+        -Wunused-variable     
+        -Wno-unused-parameter 
+		-Wno-deprecated-declarations
+        -Wdelete-non-abstract-non-virtual-dtor 
+    ) 
 endif()
 
 if (XCODE)

@@ -2,7 +2,7 @@
 #pragma once
 #include "ggl.h"
 #include "PipelineManager.h"
-#include "KDTree.h"
+#include "KDTreeWrapper.h"
 
 
 
@@ -63,7 +63,7 @@ public:
 
         bool Init(wgpu::Device device, wgpu::Queue queue, 
             const std::vector<SparsePoint>& sparsePoints, 
-            const CompleteLeftBalancedKDTreeBuilder::TreeData& kdTreeData,
+            const KDTreeBuilder::TreeData& kdTreeData,
             const CS_Uniforms uniforms);
         bool CreatePipeline(wgpu::Device device);
         bool UpdateBindGroup(wgpu::Device device, wgpu::TextureView inputTF, wgpu::TextureView outputTexture);
@@ -71,7 +71,7 @@ public:
         void Release();
     private:
         bool InitKDTreeBuffers(wgpu::Device device, wgpu::Queue queue, 
-            const CompleteLeftBalancedKDTreeBuilder::TreeData& kdTreeData);
+            const KDTreeBuilder::TreeData& kdTreeData);
         bool InitSSBO(wgpu::Device device, wgpu::Queue queue, const std::vector<SparsePoint>& sparsePoints);
         bool InitUBO(wgpu::Device device, CS_Uniforms uniforms);
     };
@@ -114,7 +114,7 @@ protected:
     DataHeader m_header;
     RS_Uniforms m_RS_Uniforms;
     CS_Uniforms m_CS_Uniforms;
-    CompleteLeftBalancedKDTreeBuilder::TreeData m_KDTreeData;
+    KDTreeBuilder::TreeData m_KDTreeData;
 private:
     wgpu::Device m_device;
     wgpu::Queue m_queue;

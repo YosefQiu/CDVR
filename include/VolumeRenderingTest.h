@@ -1,7 +1,7 @@
 #pragma once
 #include "ggl.h"
 #include "PipelineManager.h"
-#include "KDTree.h"
+#include "KDTreeWrapper.h"
 
 class VolumeRenderingTest 
 {
