@@ -10,12 +10,12 @@ KDTreeBuilder::~KDTreeBuilder()
     clear();
 }
 
-bool KDTreeBuilder::buildTree(const std::vector<SparsePoint>& inputPoints)
+bool KDTreeBuilder::buildTree(const std::vector<SparsePoint2D>& inputPoints)
 {
     return buildTree(inputPoints.data(), inputPoints.size());
 }
 
-bool KDTreeBuilder::buildTree(const SparsePoint* points, size_t numPoints)
+bool KDTreeBuilder::buildTree(const SparsePoint2D* points, size_t numPoints)
 {
     if (!points || numPoints == 0) {
         std::cerr << "KDTreeBuilder: Invalid input points" << std::endl;
@@ -54,7 +54,7 @@ bool KDTreeBuilder::buildTree(const SparsePoint* points, size_t numPoints)
 }
 
 template<int K>
-bool KDTreeBuilder::knnSearch(const SparsePoint& queryPoint, float searchRadius, 
+bool KDTreeBuilder::knnSearch(const SparsePoint2D& queryPoint, float searchRadius, 
                              std::vector<GPUPoint>& results, std::vector<float>& distances) const
 {
     if (!m_isBuilt) {
@@ -112,7 +112,7 @@ bool KDTreeBuilder::knnSearch(const SparsePoint& queryPoint, float searchRadius,
 }
 
 template<int K>
-bool KDTreeBuilder::knnSearch(const SparsePoint& queryPoint, float searchRadius,
+bool KDTreeBuilder::knnSearch(const SparsePoint2D& queryPoint, float searchRadius,
                              std::vector<int>& indices, std::vector<float>& distances) const
 {
     if (!m_isBuilt) {
@@ -204,12 +204,12 @@ void KDTreeBuilder::clear()
 }
 
 // 辅助函数实现
-kdTree::float2 KDTreeBuilder::sparseToKDTree(const SparsePoint& point) const
+kdTree::float2 KDTreeBuilder::sparseToKDTree(const SparsePoint2D& point) const
 {
     return kdTree::make_float2(point.x, point.y);
 }
 
-GPUPoint KDTreeBuilder::sparseToGPU(const SparsePoint& point) const
+GPUPoint KDTreeBuilder::sparseToGPU(const SparsePoint2D& point) const
 {
     GPUPoint gpuPoint;
     gpuPoint.x = point.x;
@@ -219,14 +219,14 @@ GPUPoint KDTreeBuilder::sparseToGPU(const SparsePoint& point) const
     return gpuPoint;
 }
 
-SparsePoint KDTreeBuilder::kdtreeToSparse(const kdTree::float2& point, int originalIndex) const
+SparsePoint2D KDTreeBuilder::kdtreeToSparse(const kdTree::float2& point, int originalIndex) const
 {
     if (originalIndex >= 0 && originalIndex < static_cast<int>(m_originalPoints.size())) {
         return m_originalPoints[originalIndex];
     }
     
     // 如果找不到原始索引，创建一个基本的SparsePoint
-    SparsePoint sparse;
+    SparsePoint2D sparse;
     sparse.x = point.x;
     sparse.y = point.y;
     sparse.value = 0.0f;
@@ -234,10 +234,10 @@ SparsePoint KDTreeBuilder::kdtreeToSparse(const kdTree::float2& point, int origi
     return sparse;
 }
 
-template bool KDTreeBuilder::knnSearch<1>(const SparsePoint&, float, std::vector<int>&, std::vector<float>&) const;
-template bool KDTreeBuilder::knnSearch<3>(const SparsePoint&, float, std::vector<int>&, std::vector<float>&) const;
-template bool KDTreeBuilder::knnSearch<5>(const SparsePoint&, float, std::vector<int>&, std::vector<float>&) const;
+template bool KDTreeBuilder::knnSearch<1>(const SparsePoint2D&, float, std::vector<int>&, std::vector<float>&) const;
+template bool KDTreeBuilder::knnSearch<3>(const SparsePoint2D&, float, std::vector<int>&, std::vector<float>&) const;
+template bool KDTreeBuilder::knnSearch<5>(const SparsePoint2D&, float, std::vector<int>&, std::vector<float>&) const;
 
-template bool KDTreeBuilder::knnSearch<1>(const SparsePoint&, float, std::vector<GPUPoint>&, std::vector<float>&) const;
-template bool KDTreeBuilder::knnSearch<3>(const SparsePoint&, float, std::vector<GPUPoint>&, std::vector<float>&) const;
-template bool KDTreeBuilder::knnSearch<5>(const SparsePoint&, float, std::vector<GPUPoint>&, std::vector<float>&) const;
+template bool KDTreeBuilder::knnSearch<1>(const SparsePoint2D&, float, std::vector<GPUPoint>&, std::vector<float>&) const;
+template bool KDTreeBuilder::knnSearch<3>(const SparsePoint2D&, float, std::vector<GPUPoint>&, std::vector<float>&) const;
+template bool KDTreeBuilder::knnSearch<5>(const SparsePoint2D&, float, std::vector<GPUPoint>&, std::vector<float>&) const;

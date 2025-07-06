@@ -44,7 +44,6 @@ bool VIS2D::Initialize(glm::mat4 vMat, glm::mat4 pMat)
     if (!m_renderStage.Init(m_device, m_queue, m_RS_Uniforms, m_header.width, m_header.height)) return false;
     if (!m_renderStage.CreatePipeline(m_device, m_swapChainFormat)) return false;
     if (!m_renderStage.InitBindGroup(m_device, m_outputTextureView)) return false;
-    
     std::cout << "[VIS2D] Transfer Function Test initialized successfully!" << std::endl;
     return true;
 
@@ -67,7 +66,7 @@ bool VIS2D::InitDataFromBinary(const std::string& filename)
     // 读取稀疏点数据
     m_sparsePoints.resize(m_header.numPoints);
     file.read(reinterpret_cast<char*>(m_sparsePoints.data()), 
-              m_header.numPoints * sizeof(SparsePoint));
+              m_header.numPoints * sizeof(SparsePoint2D));
     
     file.close();
 
@@ -239,7 +238,8 @@ void VIS2D::UpdateUniforms(glm::mat4 viewMatrix, glm::mat4 projMatrix)
     m_RS_Uniforms.viewMatrix = viewMatrix;
     m_RS_Uniforms.projMatrix = projMatrix;
     
-   m_renderStage.UpdateUniforms(m_queue, m_RS_Uniforms);
+    m_renderStage.UpdateUniforms(m_queue, m_RS_Uniforms);
+
 }
 
 void VIS2D::SetInterpolationMethod(int kValue)
@@ -263,7 +263,7 @@ void VIS2D::SetSearchRadius(float radius)
 }
 
 bool VIS2D::ComputeStage::Init(wgpu::Device device, wgpu::Queue queue, 
-    const std::vector<SparsePoint>& sparsePoints, 
+    const std::vector<SparsePoint2D>& sparsePoints, 
     const KDTreeBuilder::TreeData& kdTreeData,
     const CS_Uniforms uniforms)
 {
@@ -296,14 +296,14 @@ bool VIS2D::ComputeStage::InitUBO(wgpu::Device device, CS_Uniforms uniforms)
     return true;
 }
 
-bool VIS2D::ComputeStage::InitSSBO(wgpu::Device device, wgpu::Queue queue, const std::vector<SparsePoint>& sparsePoints) 
+bool VIS2D::ComputeStage::InitSSBO(wgpu::Device device, wgpu::Queue queue, const std::vector<SparsePoint2D>& sparsePoints) 
 {
     if (sparsePoints.empty()) return false;
 
     // 1. 创建稀疏点数据的存储缓冲区
     wgpu::BufferDescriptor storageBufferDesc = {};
     storageBufferDesc.label = "Sparse Points Buffer";
-    storageBufferDesc.size = sparsePoints.size() * sizeof(SparsePoint);
+    storageBufferDesc.size = sparsePoints.size() * sizeof(SparsePoint2D);
     storageBufferDesc.usage = wgpu::BufferUsage::Storage | wgpu::BufferUsage::CopyDst;
     storageBufferDesc.mappedAtCreation = false;
     
@@ -315,7 +315,7 @@ bool VIS2D::ComputeStage::InitSSBO(wgpu::Device device, wgpu::Queue queue, const
     }
     
     // 将稀疏点数据写入缓冲区
-    queue.writeBuffer(storageBuffer, 0, sparsePoints.data(), sparsePoints.size() * sizeof(SparsePoint));
+    queue.writeBuffer(storageBuffer, 0, sparsePoints.data(), sparsePoints.size() * sizeof(SparsePoint2D));
     
     return true;
 }

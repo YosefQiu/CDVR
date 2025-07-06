@@ -1,5 +1,6 @@
 #include "VIS3D.h"
 #include "PipelineManager.h"
+#include <cstddef>
 
 
 VIS3D::VIS3D(wgpu::Device device, wgpu::Queue queue, wgpu::TextureFormat swapChainFormat)
@@ -28,7 +29,7 @@ bool VIS3D::Initialize(glm::mat4 vMat, glm::mat4 pMat)
 {
     std::cout << "[VIS3D] Initializing Transfer Function 3D Test..." << std::endl;
 
-    if (!InitDataFromBinary("./pruned_simple_data.bin")) return false;
+    if (!InitDataFromBinary("./data.raw", 16, 16, 16)) return false;
     
     m_RS_Uniforms.viewMatrix = vMat;
     m_RS_Uniforms.projMatrix = pMat;
@@ -122,7 +123,7 @@ bool VIS3D::InitDataFromBinary(const std::string& filename)
     // 生成几个假的稀疏点
     m_sparsePoints.clear();
     m_sparsePoints.resize(m_header.numPoints);
-    for (int i = 0; i < m_header.numPoints; i++) {
+    for (std::size_t i = 0; i < m_header.numPoints; i++) {
         m_sparsePoints[i].x = i * 10.0f;
         m_sparsePoints[i].y = i * 10.0f;
         m_sparsePoints[i].value = i * 0.1f;
@@ -141,7 +142,7 @@ bool VIS3D::InitDataFromBinary(const std::string& filename)
     // 生成假的KD-Tree数据
     m_KDTreeData.points.clear();
     m_KDTreeData.points.resize(m_header.numPoints);
-    for (int i = 0; i < m_header.numPoints; i++) {
+    for (std::size_t i = 0; i < m_header.numPoints; i++) {
         m_KDTreeData.points[i].x = m_sparsePoints[i].x;
         m_KDTreeData.points[i].y = m_sparsePoints[i].y;
         m_KDTreeData.points[i].value = m_sparsePoints[i].value;
@@ -157,6 +158,72 @@ bool VIS3D::InitDataFromBinary(const std::string& filename)
     m_CS_Uniforms.interpolationMethod = 0; 
 
     return true;
+}
+
+bool VIS3D::InitDataFromBinary(const std::string& path, uint32_t w, uint32_t h, uint32_t d)
+{
+    std::ifstream file(path, std::ios::binary);
+    if (!file.is_open()) {
+        std::cerr << "Failed to open file: " << path << std::endl;
+        return false;
+    }
+
+    
+    m_header.width = w;
+    m_header.height = h;
+    m_header.depth = d;
+    m_header.numPoints = w * h * d;
+
+    m_sparsePoints.clear();
+    const size_t voxelCnt   = static_cast<size_t>(w)*h*d;
+    const size_t byteCnt    = voxelCnt * sizeof(float);
+    std::vector<float> volume(voxelCnt);
+    file.read(reinterpret_cast<char*>(volume.data()), byteCnt);
+    if (!file) { std::cerr << "[VIS3D] Failed reading data (" << file.gcount() << " B)\n"; return false; }
+
+    for (uint32_t z = 0; z < d; ++z)
+        for (uint32_t y = 0; y < h; ++y)
+            for (uint32_t x = 0; x < w; ++x)
+            {
+                const size_t idx = (static_cast<size_t>(z)*h + y)*w + x;
+                float v = volume[idx];
+                m_sparsePoints.push_back({float(x), float(y), float(z), v, 0.f});
+            }
+    file.close();
+
+    std::cout << "[VIS3D] 3D data:" << std::endl;
+    std::cout << "[VIS3D]   Grid size: " << m_header.width << " x " << m_header.height << " x " << m_header.depth << std::endl;
+    std::cout << "[VIS3D]   Number of points: " << m_header.numPoints << std::endl;
+    ComputeValueRange();
+    
+    // 设置计算着色器的uniform参数
+    m_CS_Uniforms.gridWidth = static_cast<float>(m_header.width);
+    m_CS_Uniforms.gridHeight = static_cast<float>(m_header.height);
+    m_CS_Uniforms.gridDepth = static_cast<float>(m_header.depth);
+    m_CS_Uniforms.totalPoints = static_cast<uint32_t>(m_sparsePoints.size());
+    m_CS_Uniforms.searchRadius = 50.0f;  // 随便一个值
+
+
+    // 生成假的KD-Tree数据
+    m_KDTreeData.points.clear();
+    m_KDTreeData.points.resize(m_header.numPoints);
+    for (std::size_t i = 0; i < m_header.numPoints; i++) {
+        m_KDTreeData.points[i].x = m_sparsePoints[i].x;
+        m_KDTreeData.points[i].y = m_sparsePoints[i].y;
+        m_KDTreeData.points[i].value = m_sparsePoints[i].value;
+        m_KDTreeData.points[i].padding = 0.0f;
+    }
+    m_KDTreeData.numLevels = 3;  // 随便一个值
+    
+    std::cout << "[VIS3D]   Total points: " << m_KDTreeData.points.size() << std::endl;
+    std::cout << "[VIS3D]   Number of levels: " << m_KDTreeData.numLevels << std::endl;
+
+    m_CS_Uniforms.totalNodes = m_KDTreeData.points.size();
+    m_CS_Uniforms.numLevels = m_KDTreeData.numLevels;
+    m_CS_Uniforms.interpolationMethod = 0; 
+    
+    return true;
+    
 }
 
 void VIS3D::ComputeValueRange()
@@ -275,7 +342,7 @@ void VIS3D::SetSearchRadius(float radius)
 
 // ComputeStage 实现
 bool VIS3D::ComputeStage::Init(wgpu::Device device, wgpu::Queue queue, 
-    const std::vector<SparsePoint>& sparsePoints, 
+    const std::vector<SparsePoint3D>& sparsePoints, 
     const KDTreeBuilder::TreeData& kdTreeData,
     const CS_Uniforms uniforms)
 {
@@ -305,13 +372,13 @@ bool VIS3D::ComputeStage::InitUBO(wgpu::Device device, CS_Uniforms uniforms)
     return true;
 }
 
-bool VIS3D::ComputeStage::InitSSBO(wgpu::Device device, wgpu::Queue queue, const std::vector<SparsePoint>& sparsePoints) 
+bool VIS3D::ComputeStage::InitSSBO(wgpu::Device device, wgpu::Queue queue, const std::vector<SparsePoint3D>& sparsePoints) 
 {
     if (sparsePoints.empty()) return false;
 
     wgpu::BufferDescriptor storageBufferDesc = {};
     storageBufferDesc.label = "Sparse Points 3D Buffer";
-    storageBufferDesc.size = sparsePoints.size() * sizeof(SparsePoint);
+    storageBufferDesc.size = sparsePoints.size() * sizeof(SparsePoint3D);
     storageBufferDesc.usage = wgpu::BufferUsage::Storage | wgpu::BufferUsage::CopyDst;
     storageBufferDesc.mappedAtCreation = false;
     
@@ -322,7 +389,7 @@ bool VIS3D::ComputeStage::InitSSBO(wgpu::Device device, wgpu::Queue queue, const
         return false;
     }
     
-    queue.writeBuffer(storageBuffer, 0, sparsePoints.data(), sparsePoints.size() * sizeof(SparsePoint));
+    queue.writeBuffer(storageBuffer, 0, sparsePoints.data(), sparsePoints.size() * sizeof(SparsePoint3D));
     return true;
 }
 
@@ -576,6 +643,7 @@ void VIS3D::ComputeStage::Release()
 bool VIS3D::RenderStage::Init(wgpu::Device device, wgpu::Queue queue, RS_Uniforms uniforms, float data_width, float data_height, float data_depth)
 {
     if (!InitVBO(device, queue, data_width, data_height, data_depth)) return false;
+    if (!InitEBO(device, queue)) return false;  
     if (!InitUBO(device, uniforms)) return false;
     if (!InitSampler(device)) return false;
     return true;
@@ -597,6 +665,27 @@ bool VIS3D::RenderStage::InitVBO(wgpu::Device device, wgpu::Queue queue, float d
         -0.5f,  0.5f, -0.5f,  0.0f, 1.0f, 0.0f,
     };
     
+    
+    // 创建顶点缓冲区
+    wgpu::BufferDescriptor vertexBufferDesc = {};
+    vertexBufferDesc.label = "3D Vertex Buffer";
+    vertexBufferDesc.size = sizeof(vertices);
+    vertexBufferDesc.usage = wgpu::BufferUsage::Vertex | wgpu::BufferUsage::CopyDst;
+    vertexBufferDesc.mappedAtCreation = false;
+    vertexBuffer = device.createBuffer(vertexBufferDesc);
+    
+    if (!vertexBuffer) {
+        std::cout << "[ERROR]::InitVBO Failed to create 3D vertex buffer" << std::endl;
+        return false;
+    }
+    
+    queue.writeBuffer(vertexBuffer, 0, vertices, sizeof(vertices));
+     
+    return vertexBuffer != nullptr;
+}
+
+bool VIS3D::RenderStage::InitEBO(wgpu::Device device, wgpu::Queue queue)
+{
     // 立方体索引数据 (12个三角形，36个顶点)
     uint16_t indices[] = {
         // 前面
@@ -615,21 +704,6 @@ bool VIS3D::RenderStage::InitVBO(wgpu::Device device, wgpu::Queue queue, float d
     
     indexCount = sizeof(indices) / sizeof(uint16_t);
     
-    // 创建顶点缓冲区
-    wgpu::BufferDescriptor vertexBufferDesc = {};
-    vertexBufferDesc.label = "3D Vertex Buffer";
-    vertexBufferDesc.size = sizeof(vertices);
-    vertexBufferDesc.usage = wgpu::BufferUsage::Vertex | wgpu::BufferUsage::CopyDst;
-    vertexBufferDesc.mappedAtCreation = false;
-    vertexBuffer = device.createBuffer(vertexBufferDesc);
-    
-    if (!vertexBuffer) {
-        std::cout << "[ERROR]::InitVBO Failed to create 3D vertex buffer" << std::endl;
-        return false;
-    }
-    
-    queue.writeBuffer(vertexBuffer, 0, vertices, sizeof(vertices));
-    
     // 创建索引缓冲区
     wgpu::BufferDescriptor indexBufferDesc = {};
     indexBufferDesc.label = "3D Index Buffer";
@@ -639,13 +713,12 @@ bool VIS3D::RenderStage::InitVBO(wgpu::Device device, wgpu::Queue queue, float d
     indexBuffer = device.createBuffer(indexBufferDesc);
     
     if (!indexBuffer) {
-        std::cout << "[ERROR]::InitVBO Failed to create 3D index buffer" << std::endl;
+        std::cout << "[ERROR]::InitEBO Failed to create 3D index buffer" << std::endl;
         return false;
     }
     
     queue.writeBuffer(indexBuffer, 0, indices, sizeof(indices));
-    
-    return true;
+    return indexBuffer != nullptr;
 }
 
 bool VIS3D::RenderStage::InitSampler(wgpu::Device device)
@@ -667,7 +740,7 @@ bool VIS3D::RenderStage::InitSampler(wgpu::Device device)
         std::cout << "[ERROR]::InitSampler Failed to create 3D render sampler" << std::endl;
         return false;
     }
-    return true;
+    return sampler != nullptr;
 }
 
 bool VIS3D::RenderStage::InitUBO(wgpu::Device device, RS_Uniforms uniforms)
@@ -694,6 +767,7 @@ bool VIS3D::RenderStage::CreatePipeline(wgpu::Device device, wgpu::TextureFormat
     pipeline = mgr.createRenderPipeline()
         .setDevice(device)
         .setLabel("Transfer Function 3D Render Pipeline")
+        .setPrimitiveTopology(wgpu::PrimitiveTopology::TriangleList)
         .setVertexShader("../shaders/volume_raycasting.vert.wgsl", "main")
         .setFragmentShader("../shaders/volume_raycasting.frag.wgsl", "main")
         .setVertexLayout(VertexLayoutBuilder::createPositionTexCoord3D())  // 需要3D纹理坐标
@@ -707,7 +781,7 @@ bool VIS3D::RenderStage::CreatePipeline(wgpu::Device device, wgpu::TextureFormat
         return false;
     }
 
-    return true;
+    return pipeline != nullptr;
 }
 
 bool VIS3D::RenderStage::InitBindGroup(wgpu::Device device, wgpu::TextureView outputTexture)
@@ -741,7 +815,7 @@ bool VIS3D::RenderStage::InitBindGroup(wgpu::Device device, wgpu::TextureView ou
     }
     
     std::cout << "[VIS3D] Render pipeline created successfully!" << std::endl;
-    return true;
+    return bindGroup != nullptr;
 }
 
 void VIS3D::RenderStage::Render(wgpu::RenderPassEncoder renderPass) 

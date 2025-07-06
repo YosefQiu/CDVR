@@ -66,7 +66,7 @@ void Application::MainLoop()
                 rotationAngle, 
                 glm::vec3(0.0f, 1.0f, 0.0f)
             );
-            m_volumeRenderingTest->SetModelMatrix(modelMatrix);
+            // m_volumeRenderingTest->SetModelMatrix(modelMatrix);
         }
     }
     
@@ -194,6 +194,14 @@ void Application::OnKey(int key, [[maybe_unused]] int scancode, int action, [[ma
     else if (key == GLFW_KEY_Q && action == GLFW_PRESS) {
 		glfwSetWindowShouldClose(m_window, true);
 	} 
+    else if (key == GLFW_KEY_2 && action == GLFW_PRESS) {
+        m_visStyle = visStyle::k2D;
+        InitCameraAndControl();
+    }
+    else if (key == GLFW_KEY_3 && action == GLFW_PRESS) {
+        m_visStyle = visStyle::k3D;
+        InitCameraAndControl();
+    }
     else if (key == GLFW_KEY_F11 && action == GLFW_PRESS) {
 		// 切换全屏模式
 		bool isFullscreen = glfwGetWindowMonitor(m_window) != nullptr;
@@ -427,7 +435,7 @@ void Application::UpdateGui(wgpu::RenderPassEncoder renderPass)
         ImGui::Separator();
 
         ImGui::Text("Data Type");
-        static int data_type = m_visStyle == visStyle::k2D ? 0 : 1; // 0 = 2D, 1 = 3D
+        int data_type = m_visStyle == visStyle::k2D ? 0 : 1; // 0 = 2D, 1 = 3D
         if (ImGui::RadioButton("2D", data_type == 0)) {
             data_type = 0;
             m_visStyle = visStyle::k2D;

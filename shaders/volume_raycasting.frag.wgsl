@@ -133,7 +133,7 @@ fn advancedVolumeRender(input: FragmentInput) -> vec4<f32> {
     }
     
     // 设置采样参数
-    let stepSize = 0.008;  // 更小的步长，更好的质量
+    let stepSize = 0.001;  // 更小的步长，更好的质量
     let maxSteps = i32((tFar - tNear) / stepSize) + 1;
     
     // 光照设置

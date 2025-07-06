@@ -18,6 +18,9 @@
 #include <numeric>
 #include <random>
 #include <chrono>
+#include <variant>
+#include <functional>
+#include <memory>
 
 
 

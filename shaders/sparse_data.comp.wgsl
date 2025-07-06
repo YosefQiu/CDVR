@@ -1,6 +1,7 @@
 struct SparsePoint {
     x: f32,
     y: f32,
+    z: f32,
     value: f32,
     padding: f32
 };

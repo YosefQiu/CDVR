@@ -58,7 +58,7 @@ public:
         wgpu::Buffer kdNodesBuffer = nullptr;
 
         bool Init(wgpu::Device device, wgpu::Queue queue, 
-            const std::vector<SparsePoint>& sparsePoints, 
+            const std::vector<SparsePoint3D>& sparsePoints, 
             const KDTreeBuilder::TreeData& kdTreeData,
             const CS_Uniforms uniforms);
         bool CreatePipeline(wgpu::Device device);
@@ -68,7 +68,7 @@ public:
     private:
         bool InitKDTreeBuffers(wgpu::Device device, wgpu::Queue queue, 
             const KDTreeBuilder::TreeData& kdTreeData);
-        bool InitSSBO(wgpu::Device device, wgpu::Queue queue, const std::vector<SparsePoint>& sparsePoints);
+        bool InitSSBO(wgpu::Device device, wgpu::Queue queue, const std::vector<SparsePoint3D>& sparsePoints);
         bool InitUBO(wgpu::Device device, CS_Uniforms uniforms);
     };
 
@@ -101,6 +101,7 @@ public:
     bool Initialize(glm::mat4 vMat, glm::mat4 pMat);
     bool InitOutputTexture(uint32_t width = 128, uint32_t height = 128, uint32_t depth = 128, wgpu::TextureFormat format = wgpu::TextureFormat::RGBA16Float);
     bool InitDataFromBinary(const std::string& filename);
+    bool InitDataFromBinary(const std::string& path, uint32_t w=64, uint32_t h=64, uint32_t d=64);
     void Render(wgpu::RenderPassEncoder renderPass);
     void OnWindowResize(glm::mat4 veiwMatrix, glm::mat4 projMatrix);
     void UpdateSSBO(wgpu::TextureView tfTextureView);
@@ -110,7 +111,7 @@ public:
     void SetSearchRadius(float radius);
     void SetModelMatrix(glm::mat4 modelMatrix);
 protected:
-    std::vector<SparsePoint> m_sparsePoints;
+    std::vector<SparsePoint3D> m_sparsePoints;
     DataHeader m_header;
     RS_Uniforms m_RS_Uniforms;
     CS_Uniforms m_CS_Uniforms;

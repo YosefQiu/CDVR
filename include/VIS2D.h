@@ -3,8 +3,6 @@
 #include "PipelineManager.h"
 #include "KDTreeWrapper.h"
 
-
-
 class VIS2D 
 {
 
@@ -61,7 +59,7 @@ public:
         wgpu::Buffer kdNodesBuffer = nullptr;
 
         bool Init(wgpu::Device device, wgpu::Queue queue, 
-            const std::vector<SparsePoint>& sparsePoints, 
+            const std::vector<SparsePoint2D>& sparsePoints, 
             const KDTreeBuilder::TreeData& kdTreeData,
             const CS_Uniforms uniforms);
         bool CreatePipeline(wgpu::Device device);
@@ -71,7 +69,7 @@ public:
     private:
         bool InitKDTreeBuffers(wgpu::Device device, wgpu::Queue queue, 
             const KDTreeBuilder::TreeData& kdTreeData);
-        bool InitSSBO(wgpu::Device device, wgpu::Queue queue, const std::vector<SparsePoint>& sparsePoints);
+        bool InitSSBO(wgpu::Device device, wgpu::Queue queue, const std::vector<SparsePoint2D>& sparsePoints);
         bool InitUBO(wgpu::Device device, CS_Uniforms uniforms);
     };
 
@@ -109,7 +107,7 @@ public:
     void SetInterpolationMethod(int kValue);
     void SetSearchRadius(float radius);
 protected:
-    std::vector<SparsePoint> m_sparsePoints;
+    std::vector<SparsePoint2D> m_sparsePoints;
     DataHeader m_header;
     RS_Uniforms m_RS_Uniforms;
     CS_Uniforms m_CS_Uniforms;
