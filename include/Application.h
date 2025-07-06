@@ -3,12 +3,13 @@
 
 #include "TFWidget.h"
 #include "CameraController.h"
-#include "test.h"
-#include "VolumeRenderingTest.h"
+#include "VIS2D.h"
+#include "VIS3D.h"
 struct GLFWwindow;
 
 class Application
 {
+    enum class visStyle {k2D, k3D};
 public:
     bool OnInit(int width = 640, int height = 480, const char* title = "Learn WebGPU");
     void OnFrame();
@@ -64,9 +65,9 @@ private:
     int m_width = 0;
     int m_height = 0;
     std::unique_ptr<wgpu::ErrorCallback> m_errorCallbackHandle;
-    
+    visStyle m_visStyle = visStyle::k3D;
     std::unique_ptr<CameraController> m_cameraController;
     std::unique_ptr<tfnw::WebGPUTransferFunctionWidget> m_transferFunctionWidget;
-    std::unique_ptr<VolumeRenderingTest> m_volumeRenderingTest;
-    std::unique_ptr<TransferFunctionTest> m_tfTest;
+    std::unique_ptr<VIS3D> m_volumeRenderingTest;
+    std::unique_ptr<VIS2D> m_tfTest;
 };

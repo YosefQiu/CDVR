@@ -3,7 +3,6 @@
 #include "GLFW/glfw3.h"
 #include "webgpu-utils.h"
 
-#include "test.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_wgpu.h>
@@ -49,20 +48,41 @@ void Application::MainLoop()
         m_cameraController->Update(1.0f / 60.0f);
         auto vMat = m_cameraController->GetCamera()->GetViewMatrix();
         auto pMat = m_cameraController->GetCamera()->GetProjMatrix();
-        if (m_tfTest) 
+        if (m_tfTest && m_visStyle == visStyle::k2D) 
         {
             m_tfTest->UpdateUniforms(vMat, pMat);
         }
 
-        // if (m_volumeRenderingTest) {
-        //     m_volumeRenderingTest->UpdateUniforms(vMat, pMat, m_cameraController->GetCamera()->GetPosition());
-        // }
+        if (m_volumeRenderingTest && m_visStyle == visStyle::k3D) 
+        {
+            m_volumeRenderingTest->UpdateUniforms(vMat, pMat);
+                
+            // 添加旋转效果
+            static float rotationAngle = 0.0f;
+            rotationAngle += 0.01f;  // 每帧旋转0.01弧度
+                
+            glm::mat4 modelMatrix = glm::rotate(
+                glm::mat4(1.0f), 
+                rotationAngle, 
+                glm::vec3(0.0f, 1.0f, 0.0f)
+            );
+            m_volumeRenderingTest->SetModelMatrix(modelMatrix);
+        }
     }
     
-    if (m_tfTest && m_transferFunctionWidget->changed()) {
+   if (m_transferFunctionWidget->changed()) 
+   {
         wgpu::TextureView currentTFView = m_transferFunctionWidget->get_webgpu_texture_view();
-        if (currentTFView) {
-            m_tfTest->UpdateSSBO(currentTFView);
+        if (currentTFView) 
+        {
+            if (m_tfTest && m_visStyle == visStyle::k2D)
+            {
+                m_tfTest->UpdateSSBO(currentTFView);
+            }
+            if (m_volumeRenderingTest && m_visStyle == visStyle::k3D) 
+            {
+                m_volumeRenderingTest->UpdateSSBO(currentTFView);
+            }
         }
     }
 
@@ -124,13 +144,16 @@ void Application::MainLoop()
                           static_cast<float>(m_height),  // 使用framebuffer尺寸
                           0.0f, 1.0f);
 
-    if (m_tfTest) {
+    if (m_tfTest && m_visStyle == visStyle::k2D) 
+    {
         m_tfTest->Render(renderPass);
     }
+    else if (m_volumeRenderingTest && m_visStyle == visStyle::k3D) 
+    {
+        m_volumeRenderingTest->Render(renderPass);
+    }
     
-    // if (m_volumeRenderingTest) {
-    //     m_volumeRenderingTest->Render(renderPass);
-    // }   
+    
     
     UpdateGui(renderPass);
 
@@ -215,11 +238,34 @@ void Application::OnResize(int width, int height)
 
     InitDepthBuffer();
 
-    m_cameraController->GetCamera()->SetViewportSize(width, height);
+    // m_cameraController->GetCamera()->SetViewportSize(width, height);
+    if (m_visStyle == visStyle::k2D) 
+    {
+        // 2D模式：正交相机
+        float data_width = 150.0f;
+        float data_height = 450.0f;
+        m_cameraController->GetCamera()->SetOrthoToFitContent(
+            data_width, data_height, 
+            static_cast<float>(width) / static_cast<float>(height)
+        );
+    } 
+    else if (m_visStyle == visStyle::k3D) 
+    {
+        // 3D模式：透视相机
+        m_cameraController->GetCamera()->SetPerspective(
+            45.0f, 
+            0.1f, 
+            100.0f
+        );
+    }
+    
+
     glm::mat4 viewMatrix = m_cameraController->GetCamera()->GetViewMatrix();
     glm::mat4 projMatrix = m_cameraController->GetCamera()->GetProjMatrix();
-    m_tfTest->OnWindowResize(viewMatrix, projMatrix);
-    if (m_volumeRenderingTest) {
+    if (m_tfTest && m_visStyle == visStyle::k2D)
+        m_tfTest->OnWindowResize(viewMatrix, projMatrix);
+
+    if (m_volumeRenderingTest && m_visStyle == visStyle::k3D) {
         // m_volumeRenderingTest->OnWindowResize(viewMatrix, projMatrix);
     }
 
@@ -380,6 +426,20 @@ void Application::UpdateGui(wgpu::RenderPassEncoder renderPass)
         ImGui::Spacing();
         ImGui::Separator();
 
+        ImGui::Text("Data Type");
+        static int data_type = m_visStyle == visStyle::k2D ? 0 : 1; // 0 = 2D, 1 = 3D
+        if (ImGui::RadioButton("2D", data_type == 0)) {
+            data_type = 0;
+            m_visStyle = visStyle::k2D;
+            InitCameraAndControl();
+        }
+        ImGui::SameLine();
+        if (ImGui::RadioButton("3D", data_type == 1)) {
+            data_type = 1;
+            m_visStyle = visStyle::k3D;
+            InitCameraAndControl();
+        }
+
         // 插值方法选择
         ImGui::Text("Interpolation Method");
         static int interpolation_method = 0; // 0 = KNN=1, 1 = KNN=3
@@ -387,17 +447,17 @@ void Application::UpdateGui(wgpu::RenderPassEncoder renderPass)
         // 横向排列 radio buttons
         if (ImGui::RadioButton("KNN = 1", interpolation_method == 0)) {
             interpolation_method = 0;
-            if (m_tfTest) m_tfTest->SetInterpolationMethod(interpolation_method);
+            if (m_tfTest && m_visStyle == visStyle::k2D) m_tfTest->SetInterpolationMethod(interpolation_method);
         }
         ImGui::SameLine(); // 同一行显示下一个控件
         if (ImGui::RadioButton("KNN = 3", interpolation_method == 1)) {
             interpolation_method = 1;
-            if (m_tfTest) m_tfTest->SetInterpolationMethod(interpolation_method);
+            if (m_tfTest && m_visStyle == visStyle::k2D) m_tfTest->SetInterpolationMethod(interpolation_method);
         }
         ImGui::SameLine(); // 同一行显示下一个控件
         if (ImGui::RadioButton("KNN = 5", interpolation_method == 2)) {
             interpolation_method = 2;
-            if (m_tfTest) m_tfTest->SetInterpolationMethod(interpolation_method);
+            if (m_tfTest && m_visStyle == visStyle::k2D) m_tfTest->SetInterpolationMethod(interpolation_method);
         }
 
 
@@ -417,7 +477,7 @@ void Application::UpdateGui(wgpu::RenderPassEncoder renderPass)
         auto max_range = 500.0f;
         if (ImGui::SliderFloat("##SearchRadius", &search_radius, 0.1f, max_range, "%.2f")) {
             // 当滑动条值改变时通知 m_tfTest
-            if (m_tfTest) {
+            if (m_tfTest && m_visStyle == visStyle::k2D) {
                 m_tfTest->SetSearchRadius(search_radius);
             }
         }
@@ -431,7 +491,7 @@ void Application::UpdateGui(wgpu::RenderPassEncoder renderPass)
         if (ImGui::InputFloat("##SearchRadiusInput", &search_radius, 0.1f, 1.0f, "%.2f")) {
             // 限制范围
             search_radius = std::max(0.1f, std::min(search_radius, 50.0f));
-            if (m_tfTest) {
+            if (m_tfTest && m_visStyle == visStyle::k2D) {
                 m_tfTest->SetSearchRadius(search_radius);
             }
         }
@@ -512,7 +572,7 @@ void Application::OnTransferFunctionChanged()
     wgpu::TextureView tfTextureView = m_transferFunctionWidget->get_webgpu_texture_view();
     wgpu::Sampler tfSampler = m_transferFunctionWidget->get_webgpu_sampler();
 
-    if (m_tfTest && tfTextureView) 
+    if (m_tfTest && tfTextureView && m_visStyle == visStyle::k2D) 
     {
         m_tfTest->UpdateSSBO(tfTextureView);
     }
@@ -743,13 +803,28 @@ void Application::TerminateDepthBuffer()
 
 bool Application::InitCameraAndControl()
 {
-    Camera* camera = new Camera(Camera::CameraMode::Ortho2D);
-    float data_width = 150.0f;  // 从 visualizer 获取
-    float data_height = 450.0f;
-    camera->SetOrthoToFitContent(data_width, data_height, static_cast<float>(m_width) / static_cast<float>(m_height));
-	camera->SetPosition(glm::vec3(0.0f, 0.0f, 1.0f));  
-	camera->SetTarget(glm::vec3(0.0f, 0.0f, 0.0f));
-	camera->SetUp(glm::vec3(0.0f, 1.0f, 0.0f));
+    Camera* camera = nullptr;
+    if (m_visStyle == visStyle::k2D) 
+    {
+        camera = new Camera(Camera::CameraMode::Ortho2D);
+        float data_width = 150.0f;  // 从 visualizer 获取
+        float data_height = 450.0f;
+        camera->SetOrthoToFitContent(data_width, data_height, static_cast<float>(m_width) / static_cast<float>(m_height));
+        camera->SetPosition(glm::vec3(0.0f, 0.0f, 1.0f));  
+        camera->SetTarget(glm::vec3(0.0f, 0.0f, 0.0f));
+        camera->SetUp(glm::vec3(0.0f, 1.0f, 0.0f));
+    }
+    else if (m_visStyle == visStyle::k3D)
+    {
+        camera = new Camera(Camera::CameraMode::Turntable3D);
+        camera->SetViewportSize(m_width, m_height);
+        camera->SetPerspective(45.0f, 0.1f, 100.0f);
+        
+        // 设置3D相机位置
+        camera->SetPosition(glm::vec3(2.0f, 2.0f, 2.0f));
+        camera->SetTarget(glm::vec3(0.0f, 0.0f, 0.0f));
+        camera->SetUp(glm::vec3(0.0f, 1.0f, 0.0f));
+    }
     m_cameraController = std::make_unique<CameraController>(camera);
     if (!m_cameraController) {
         std::cerr << "[ERROR]::InitCameraAndControl() - Failed to create CameraController!" << std::endl;
@@ -772,17 +847,21 @@ void Application::TerminateCameraAndControl()
 
 bool Application::InitGeometry()
 {
-    m_tfTest = std::make_unique<TransferFunctionTest>(m_device, m_queue, m_swapChainFormat);
+    m_tfTest = std::make_unique<VIS2D>(m_device, m_queue, m_swapChainFormat);
     glm::mat4 viewMatrix = m_cameraController->GetCamera()->GetViewMatrix();
     glm::mat4 projMatrix = m_cameraController->GetCamera()->GetProjMatrix();
     m_tfTest->Initialize(viewMatrix, projMatrix);
-    return m_tfTest != nullptr;
+    
 
-    // m_volumeRenderingTest = std::make_unique<VolumeRenderingTest>(m_device, m_queue, m_swapChainFormat);
-    // glm::mat4 viewMatrix = m_cameraController->GetCamera()->GetViewMatrix();
-    // glm::mat4 projMatrix = m_cameraController->GetCamera()->GetProjMatrix();
-    // m_volumeRenderingTest->Initialize(viewMatrix, projMatrix);
-    // return m_volumeRenderingTest != nullptr;
+    m_volumeRenderingTest = std::make_unique<VIS3D>(m_device, m_queue, m_swapChainFormat);
+    m_volumeRenderingTest->Initialize(viewMatrix, projMatrix);
+    
+    if (!m_tfTest || !m_volumeRenderingTest) {
+        std::cerr << "[ERROR]::InitGeometry() - Failed to create geometry tests!" << std::endl;
+        return false;
+    }
+
+    return true;
 }
 
 void Application::TerminateGeometry()
@@ -791,7 +870,7 @@ void Application::TerminateGeometry()
         m_tfTest.reset();
     }
 
-    // if (m_volumeRenderingTest) {
-    //     m_volumeRenderingTest.reset();
-    // }
+    if (m_volumeRenderingTest) {
+        m_volumeRenderingTest.reset();
+    }
 }

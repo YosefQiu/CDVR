@@ -79,6 +79,25 @@ struct DepthPresets {
         depth.stencilWriteMask = 0xFFFFFFFF;
         return depth;
     }
+
+    static wgpu::DepthStencilState volumeRenderingDepth(wgpu::TextureFormat depthFormat = wgpu::TextureFormat::Depth24Plus) {
+        wgpu::StencilFaceState stencil = {};
+        stencil.compare = wgpu::CompareFunction::Always;
+        stencil.failOp = wgpu::StencilOperation::Keep;
+        stencil.depthFailOp = wgpu::StencilOperation::Keep;
+        stencil.passOp = wgpu::StencilOperation::Keep;
+        
+        wgpu::DepthStencilState depth = {};
+        depth.format = depthFormat;
+        depth.depthWriteEnabled = false;  // 关键：不写入深度
+        depth.depthCompare = wgpu::CompareFunction::Less;  // 仍然测试深度
+        depth.stencilFront = stencil;
+        depth.stencilBack = stencil;
+        depth.stencilReadMask = 0xFFFFFFFF;
+        depth.stencilWriteMask = 0xFFFFFFFF;
+        return depth;
+    }
+
 };
 
 struct VertexLayoutBuilder {
@@ -121,6 +140,28 @@ struct VertexLayoutBuilder {
         layout.attributes = attrs;
         return layout;
     }
+
+    static wgpu::VertexBufferLayout createPositionTexCoord3D() {
+        static wgpu::VertexAttribute attributes[2] = {};
+        
+        // Position (vec3)
+        attributes[0].shaderLocation = 0;
+        attributes[0].offset = 0;
+        attributes[0].format = wgpu::VertexFormat::Float32x3;
+        
+        // 3D Texture coordinates (vec3)
+        attributes[1].shaderLocation = 1;
+        attributes[1].offset = 3 * sizeof(float);
+        attributes[1].format = wgpu::VertexFormat::Float32x3;
+        
+        static wgpu::VertexBufferLayout layout = {};
+        layout.arrayStride = 6 * sizeof(float);  // 3 for position + 3 for texCoord
+        layout.stepMode = wgpu::VertexStepMode::Vertex;
+        layout.attributeCount = 2;
+        layout.attributes = attributes;
+        
+        return layout;
+    }
 };
 
 // 渲染管线构建器类
@@ -156,6 +197,7 @@ public:
     RenderPipelineBuilder& setDepthStencilState(const wgpu::DepthStencilState& depthState);
     RenderPipelineBuilder& setReadOnlyDepth(wgpu::TextureFormat format = wgpu::TextureFormat::Depth24Plus);  // 快捷方法
     RenderPipelineBuilder& setStandardDepth(wgpu::TextureFormat format = wgpu::TextureFormat::Depth24Plus);  // 快捷方法
+    RenderPipelineBuilder& setVolumeRenderingDepth(wgpu::TextureFormat format = wgpu::TextureFormat::Depth24Plus);  // 快捷方法
     RenderPipelineBuilder& disableDepth();
     
     // 多重采样

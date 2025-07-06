@@ -128,6 +128,11 @@ RenderPipelineBuilder& RenderPipelineBuilder::setStandardDepth(wgpu::TextureForm
     return *this;
 }
 
+RenderPipelineBuilder& RenderPipelineBuilder::setVolumeRenderingDepth(wgpu::TextureFormat format) {
+    m_depthState = DepthPresets::volumeRenderingDepth(format);
+    return *this;
+}
+
 RenderPipelineBuilder& RenderPipelineBuilder::disableDepth() {
     m_depthState.reset();
     return *this;

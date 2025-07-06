@@ -1,4 +1,3 @@
-// TransferFunctionTest.h
 #pragma once
 #include "ggl.h"
 #include "PipelineManager.h"
@@ -6,12 +5,12 @@
 
 
 
-class TransferFunctionTest 
+class VIS2D 
 {
 
 public:
-    TransferFunctionTest(wgpu::Device device, wgpu::Queue queue, wgpu::TextureFormat swapChainFormat);
-    ~TransferFunctionTest();
+    VIS2D(wgpu::Device device, wgpu::Queue queue, wgpu::TextureFormat swapChainFormat);
+    ~VIS2D();
 
     
     struct RS_Uniforms 

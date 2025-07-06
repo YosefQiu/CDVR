@@ -1,110 +1,202 @@
 // volume_raycasting.frag.wgsl
-// Ray casting的片段着色器
-
-struct RS_Uniforms {
+struct Uniforms {
     viewMatrix: mat4x4<f32>,
     projMatrix: mat4x4<f32>,
     modelMatrix: mat4x4<f32>,
-    cameraPos: vec3<f32>,
-    rayStepSize: f32,
-    volumeSize: vec3<f32>,
-    volumeOpacity: f32,
+};
+
+struct FragmentInput {
+    @location(0) worldPos: vec3<f32>,
+    @location(1) texCoord: vec3<f32>,
+    @location(2) localPos: vec3<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var inputTexture: texture_3d<f32>;
+@group(0) @binding(2) var textureSampler: sampler;
+
+// 获取相机位置（从view matrix的逆矩阵中提取）
+fn getCameraPosition() -> vec3<f32> {
+    let invView = transpose(uniforms.viewMatrix);  // 简化的逆矩阵（假设只有旋转和平移）
+    return vec3<f32>(invView[3][0], invView[3][1], invView[3][2]);
 }
 
-@group(0) @binding(0) var<uniform> uniforms: RS_Uniforms;
-@group(0) @binding(1) var volumeTexture: texture_3d<f32>;
-@group(0) @binding(2) var volumeSampler: sampler;
-@group(0) @binding(3) var transferFunction: texture_2d<f32>;
-@group(0) @binding(4) var tfSampler: sampler;
-
-// 射线与立方体求交函数
+// 计算光线与立方体的交点
 fn rayBoxIntersection(rayOrigin: vec3<f32>, rayDir: vec3<f32>) -> vec2<f32> {
-    let boxMin = vec3<f32>(0.0, 0.0, 0.0);
-    let boxMax = vec3<f32>(1.0, 1.0, 1.0);
-
+    let boxMin = vec3<f32>(-0.5, -0.5, -0.5);
+    let boxMax = vec3<f32>(0.5, 0.5, 0.5);
+    
     let invDir = 1.0 / rayDir;
     let t1 = (boxMin - rayOrigin) * invDir;
     let t2 = (boxMax - rayOrigin) * invDir;
-
+    
     let tMin = min(t1, t2);
     let tMax = max(t1, t2);
-
+    
     let tNear = max(max(tMin.x, tMin.y), tMin.z);
     let tFar = min(min(tMax.x, tMax.y), tMax.z);
-
+    
     return vec2<f32>(max(tNear, 0.0), tFar);
 }
 
-@fragment
-fn main(
-    @location(0) worldPos: vec3<f32>,
-    @location(1) localPos: vec3<f32>,
-    @location(2) viewDir: vec3<f32>
-) -> @location(0) vec4<f32> {
+// 简单的体积渲染
+fn simpleVolumeRender(input: FragmentInput) -> vec4<f32> {
+    // 直接采样3D纹理
+    let color = textureSample(inputTexture, textureSampler, input.texCoord);
+    
+    // 简单的深度衰减效果
+    let depth = length(input.localPos);
+    let depthFactor = 1.0 - depth * 0.3;
+    
+    return vec4<f32>(color.rgb * depthFactor, color.a);
+}
 
-    // 射线起点（在体数据的局部坐标系中）
-    let rayOrigin = localPos;
-    let rayDir = normalize(viewDir);
-
-    // 计算射线与体数据边界盒的交点
-    let intersection = rayBoxIntersection(rayOrigin, rayDir);
+// Ray casting 体积渲染
+fn raycastingVolumeRender(input: FragmentInput) -> vec4<f32> {
+    // 计算光线方向
+    let cameraPos = getCameraPosition();
+    let rayDir = normalize(input.worldPos - cameraPos);
+    
+    // 将光线变换到局部坐标系
+    let invModel = transpose(uniforms.modelMatrix);  // 简化的逆矩阵
+    let localRayOrigin = (invModel * vec4<f32>(cameraPos, 1.0)).xyz;
+    let localRayDir = (invModel * vec4<f32>(rayDir, 0.0)).xyz;
+    
+    // 计算光线与立方体的交点
+    let intersection = rayBoxIntersection(localRayOrigin, normalize(localRayDir));
     let tNear = intersection.x;
     let tFar = intersection.y;
-
-    // 如果射线没有与边界盒相交，返回透明
-    if (tNear >= tFar || tFar <= 0.0) {
-        discard;
+    
+    if (tFar <= tNear) {
+        return vec4<f32>(0.0, 0.0, 0.0, 0.0);  // 没有交点
     }
-
-    // Ray marching参数
-    let stepSize = uniforms.rayStepSize;
+    
+    // 设置采样参数
+    let stepSize = 0.01;
     let maxSteps = i32((tFar - tNear) / stepSize) + 1;
-
-    // 初始化颜色累积
-    var finalColor = vec4<f32>(0.0, 0.0, 0.0, 0.0);
-
-    // 射线行进
-    for (var i = 0; i < maxSteps; i = i + 1) {
-        let t = tNear + f32(i) * stepSize;
-        if (t > tFar) {
-            break;
+    
+    // 累积颜色
+    var accumColor = vec4<f32>(0.0);
+    var t = tNear;
+    
+    for (var i = 0; i < maxSteps && i < 200; i++) {
+        if (accumColor.a > 0.95) {
+            break;  // 提前终止
         }
-
-        // 当前采样位置
-        let samplePos = rayOrigin + rayDir * t;
-
-        // 检查是否在体数据范围内
-        if (any(samplePos < vec3<f32>(0.0)) || any(samplePos > vec3<f32>(1.0))) {
+        
+        // 计算采样位置
+        let samplePos = localRayOrigin + t * normalize(localRayDir);
+        
+        // 转换到纹理坐标 [0,1]
+        let texCoord = samplePos + vec3<f32>(0.5);
+        
+        // 边界检查
+        if (any(texCoord < vec3<f32>(0.0)) || any(texCoord > vec3<f32>(1.0))) {
+            t += stepSize;
             continue;
         }
-
-        // 从体纹理中采样
-        let volumeSample = textureSample(volumeTexture, volumeSampler, samplePos);
-        let density = volumeSample.a;  // 密度存储在alpha通道
-
-        // 如果密度很小，跳过这个采样点
-        if (density < 0.01) {
-            continue;
-        }
-
-        // 从传输函数中获取颜色
-        let tfColor = textureSample(transferFunction, tfSampler, vec2<f32>(density, 0.5));
-
-        // 应用体积不透明度
-        var sampleColor = vec4<f32>(tfColor.rgb, tfColor.a * uniforms.volumeOpacity * density);
-
-        // 前向混合（front-to-back blending）
-        sampleColor.a = sampleColor.a * (1.0 - finalColor.a);
-        finalColor = finalColor + sampleColor;
-
-        // 早期射线终止：如果不透明度接近1，停止采样
-        if (finalColor.a > 0.99) {
-            break;
-        }
+        
+        // 采样体积数据
+        let sampleColor = textureSample(inputTexture, textureSampler, texCoord);
+        
+        // Alpha混合
+        let alpha = sampleColor.a * stepSize * 10.0;  // 调整密度
+        let oneMinusAccumAlpha = 1.0 - accumColor.a;
+        accumColor.x += sampleColor.x * alpha * oneMinusAccumAlpha;
+        accumColor.y += sampleColor.y * alpha * oneMinusAccumAlpha;
+        accumColor.z += sampleColor.z * alpha * oneMinusAccumAlpha;
+        accumColor.w += alpha * oneMinusAccumAlpha;
+        
+        t += stepSize;
     }
+    
+    return accumColor;
+}
 
-    // 确保alpha值在合理范围内
-    finalColor.a = clamp(finalColor.a, 0.0, 1.0);
+fn advancedVolumeRender(input: FragmentInput) -> vec4<f32> {
+    // 计算光线方向
+    let cameraPos = getCameraPosition();
+    let rayDir = normalize(input.worldPos - cameraPos);
+    
+    // 将光线变换到局部坐标系
+    let invModel = transpose(uniforms.modelMatrix);
+    let localRayOrigin = (invModel * vec4<f32>(cameraPos, 1.0)).xyz;
+    let localRayDir = (invModel * vec4<f32>(rayDir, 0.0)).xyz;
+    
+    // 计算光线与立方体的交点
+    let intersection = rayBoxIntersection(localRayOrigin, normalize(localRayDir));
+    let tNear = intersection.x;
+    let tFar = intersection.y;
+    
+    if (tFar <= tNear) {
+        return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    }
+    
+    // 设置采样参数
+    let stepSize = 0.008;  // 更小的步长，更好的质量
+    let maxSteps = i32((tFar - tNear) / stepSize) + 1;
+    
+    // 光照设置
+    let lightDir = normalize(vec3<f32>(1.0, 1.0, 1.0));
+    
+    // 累积颜色
+    var accumColor = vec4<f32>(0.0);
+    var t = tNear;
+    
+    for (var i = 0; i < maxSteps && i < 300; i++) {
+        if (accumColor.a > 0.98) {
+            break;
+        }
+        
+        // 计算采样位置
+        let samplePos = localRayOrigin + t * normalize(localRayDir);
+        let texCoord = samplePos + vec3<f32>(0.5);
+        
+        // 边界检查
+        if (any(texCoord < vec3<f32>(0.02)) || any(texCoord > vec3<f32>(0.98))) {
+            t += stepSize;
+            continue;
+        }
+        
+        // 采样体积数据
+        let sampleColor = textureSample(inputTexture, textureSampler, texCoord);
+        
+        if (sampleColor.a > 0.01) {  // 只处理非透明的采样点
+            // 计算梯度（简单的数值梯度）
+            let eps = 0.01;
+            let gradX = textureSample(inputTexture, textureSampler, texCoord + vec3<f32>(eps, 0.0, 0.0)).a
+                      - textureSample(inputTexture, textureSampler, texCoord - vec3<f32>(eps, 0.0, 0.0)).a;
+            let gradY = textureSample(inputTexture, textureSampler, texCoord + vec3<f32>(0.0, eps, 0.0)).a
+                      - textureSample(inputTexture, textureSampler, texCoord - vec3<f32>(0.0, eps, 0.0)).a;
+            let gradZ = textureSample(inputTexture, textureSampler, texCoord + vec3<f32>(0.0, 0.0, eps)).a
+                      - textureSample(inputTexture, textureSampler, texCoord - vec3<f32>(0.0, 0.0, eps)).a;
+            
+            let normal = normalize(vec3<f32>(gradX, gradY, gradZ));
+            
+            // 简单的光照计算
+            let diffuse = max(dot(normal, lightDir), 0.0);
+            let lighting = 0.3 + 0.7 * diffuse;  // 环境光 + 漫反射
+            
+            // Alpha混合 - 修复：分别处理RGB和A分量
+            let alpha = sampleColor.a * stepSize * 15.0;
+            let oneMinusAccumAlpha = 1.0 - accumColor.a;
+            let lightedColor = sampleColor * lighting;
+            
+            // 分别更新RGBA分量
+            accumColor.x += lightedColor.x * alpha * oneMinusAccumAlpha;
+            accumColor.y += lightedColor.y * alpha * oneMinusAccumAlpha;
+            accumColor.z += lightedColor.z * alpha * oneMinusAccumAlpha;
+            accumColor.w += alpha * oneMinusAccumAlpha;
+        }
+        
+        t += stepSize;
+    }
+    
+    return accumColor;
+}
 
-    return finalColor;
+
+@fragment
+fn main(input: FragmentInput) -> @location(0) vec4<f32> {
+    return advancedVolumeRender(input);
 }
