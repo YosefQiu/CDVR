@@ -198,5 +198,5 @@ fn advancedVolumeRender(input: FragmentInput) -> vec4<f32> {
 
 @fragment
 fn main(input: FragmentInput) -> @location(0) vec4<f32> {
-    return advancedVolumeRender(input);
+    return raycastingVolumeRender(input);
 }

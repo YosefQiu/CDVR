@@ -82,7 +82,7 @@ bool VIS2D::InitDataFromBinary(const std::string& filename)
     ComputeValueRange();
 
     // TEST FOR KD-Tree
-    KDTreeBuilder builder;
+    KDTreeBuilder2D builder;
     if (builder.buildTree(m_sparsePoints)) 
     {
         m_KDTreeData.points = builder.getGPUPoints();
@@ -112,7 +112,7 @@ bool VIS2D::InitDataFromBinary(const std::string& filename)
     //         int pixel_idx = h_idx * test_w + w_idx;
     //         // KDTree 遍历
     //         SparsePoint queryPoint = {static_cast<float>(w_idx), static_cast<float>(h_idx), 0.0f, 0.0f};
-    //         std::vector<GPUPoint> res;
+    //         std::vector<GPUPoint2D> res;
     //         std::vector<float> distances;
     //         bool success = builder.knnSearch<1>(queryPoint, m_CS_Uniforms.searchRadius, res, distances);
     //         if (success)
@@ -264,7 +264,7 @@ void VIS2D::SetSearchRadius(float radius)
 
 bool VIS2D::ComputeStage::Init(wgpu::Device device, wgpu::Queue queue, 
     const std::vector<SparsePoint2D>& sparsePoints, 
-    const KDTreeBuilder::TreeData& kdTreeData,
+    const KDTreeBuilder2D::TreeData2D& kdTreeData,
     const CS_Uniforms uniforms)
 {
     if (!InitSSBO(device, queue, sparsePoints)) return false;
@@ -321,7 +321,7 @@ bool VIS2D::ComputeStage::InitSSBO(wgpu::Device device, wgpu::Queue queue, const
 }
 
 bool VIS2D::ComputeStage::InitKDTreeBuffers(wgpu::Device device, wgpu::Queue queue, 
-    const KDTreeBuilder::TreeData& kdTreeData)
+    const KDTreeBuilder2D::TreeData2D& kdTreeData)
 {
    if (kdTreeData.points.empty()) {
         std::cout << "[ERROR]::InitKDTreeBuffers KD-Tree data is empty" << std::endl;
@@ -331,7 +331,7 @@ bool VIS2D::ComputeStage::InitKDTreeBuffers(wgpu::Device device, wgpu::Queue que
     // 1. 创建KD-Tree节点缓冲区
     wgpu::BufferDescriptor kdNodesBufferDesc = {};
     kdNodesBufferDesc.label = "KD-Tree Points Buffer";
-    kdNodesBufferDesc.size = kdTreeData.points.size() * sizeof(GPUPoint);
+    kdNodesBufferDesc.size = kdTreeData.points.size() * sizeof(GPUPoint2D);
     kdNodesBufferDesc.usage = wgpu::BufferUsage::Storage | wgpu::BufferUsage::CopyDst;
     kdNodesBufferDesc.mappedAtCreation = false;
     
@@ -343,7 +343,7 @@ bool VIS2D::ComputeStage::InitKDTreeBuffers(wgpu::Device device, wgpu::Queue que
     }
     
     // 将KD-Tree节点数据写入缓冲区
-    queue.writeBuffer(kdNodesBuffer, 0, kdTreeData.points.data(), kdTreeData.points.size() * sizeof(GPUPoint));
+    queue.writeBuffer(kdNodesBuffer, 0, kdTreeData.points.data(), kdTreeData.points.size() * sizeof(GPUPoint2D));
 
     return kdNodesBuffer != nullptr;
 }

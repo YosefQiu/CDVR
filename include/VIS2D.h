@@ -60,7 +60,7 @@ public:
 
         bool Init(wgpu::Device device, wgpu::Queue queue, 
             const std::vector<SparsePoint2D>& sparsePoints, 
-            const KDTreeBuilder::TreeData& kdTreeData,
+            const KDTreeBuilder2D::TreeData2D& kdTreeData,
             const CS_Uniforms uniforms);
         bool CreatePipeline(wgpu::Device device);
         bool UpdateBindGroup(wgpu::Device device, wgpu::TextureView inputTF, wgpu::TextureView outputTexture);
@@ -68,7 +68,7 @@ public:
         void Release();
     private:
         bool InitKDTreeBuffers(wgpu::Device device, wgpu::Queue queue, 
-            const KDTreeBuilder::TreeData& kdTreeData);
+            const KDTreeBuilder2D::TreeData2D& kdTreeData);
         bool InitSSBO(wgpu::Device device, wgpu::Queue queue, const std::vector<SparsePoint2D>& sparsePoints);
         bool InitUBO(wgpu::Device device, CS_Uniforms uniforms);
     };
@@ -111,7 +111,7 @@ protected:
     DataHeader m_header;
     RS_Uniforms m_RS_Uniforms;
     CS_Uniforms m_CS_Uniforms;
-    KDTreeBuilder::TreeData m_KDTreeData;
+    KDTreeBuilder2D::TreeData2D m_KDTreeData;
 private:
     wgpu::Device m_device;
     wgpu::Queue m_queue;

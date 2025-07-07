@@ -2,6 +2,7 @@
 #pragma once
 #include "ggl.h"
 
+#include "nlohmann/json.hpp"
 #include "imgui.h"
 
 namespace tfnw {
@@ -58,6 +59,11 @@ class WebGPUTransferFunctionWidget {
 public:
     WebGPUTransferFunctionWidget(WGPUDevice device, WGPUQueue queue);
     ~WebGPUTransferFunctionWidget();
+
+    bool save_transfer_function(const std::string& filepath) const;
+    bool load_transfer_function(const std::string& filepath);
+    std::string export_to_json() const;
+    bool import_from_json(const std::string& json_data);
 
     // Add a colormap preset. The image should be a 1D RGBA8 image, if the image
     // is provided in sRGBA colorspace it will be linearized

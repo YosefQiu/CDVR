@@ -17,6 +17,7 @@ add_subdirectory(third/webgpu)
 add_subdirectory(third/glfw3webgpu)
 add_subdirectory(third/imgui)
 add_subdirectory(third/KDTree/kdtree)
+add_subdirectory(third/json)
 include_directories(third/glm)
 include_directories(third/stb)
 
@@ -39,7 +40,7 @@ ADD_EXECUTABLE(
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include)
-TARGET_LINK_LIBRARIES(${PROJECT_NAME} PRIVATE glfw webgpu glfw3webgpu imgui kdtree)
+TARGET_LINK_LIBRARIES(${PROJECT_NAME} PRIVATE glfw webgpu glfw3webgpu imgui kdtree nlohmann_json::nlohmann_json)
 target_copy_webgpu_binaries(${PROJECT_NAME})
 
 set_target_properties(${PROJECT_NAME} PROPERTIES

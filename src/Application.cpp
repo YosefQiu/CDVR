@@ -307,6 +307,8 @@ void Application::KeyCallback(GLFWwindow* window, int key, int scancode, int act
 
 void Application::CursorPosCallback(GLFWwindow* window, double xpos, double ypos)
 {
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.WantCaptureMouse) return;
 	auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
 	if (app) 
 	{
@@ -319,6 +321,8 @@ void Application::CursorPosCallback(GLFWwindow* window, double xpos, double ypos
 
 void Application::MouseButtonCallback(GLFWwindow* window, int button, int action, int mods)
 {
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.WantCaptureMouse) return;
 	auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
 	if (app) {
 		if (app->m_cameraController) 

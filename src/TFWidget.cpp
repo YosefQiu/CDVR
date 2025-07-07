@@ -2,9 +2,12 @@
 
 
 #include "embedded_colormaps.h"
+#include "imgui.h"
 #include "stb_image.h"
 
 namespace tfnw {
+
+    using json = nlohmann::json;
 
 template <typename T>
 inline T clamp(T x, T min, T max)
@@ -174,6 +177,213 @@ void WebGPUTransferFunctionWidget::cleanup_webgpu_resources()
     }
 }
 
+bool WebGPUTransferFunctionWidget::save_transfer_function(const std::string& filepath) const
+{
+    try {
+        json root;
+        
+        // 保存基本信息
+        root["version"] = "1.0";
+        root["colormap_width"] = COLORMAP_WIDTH;
+        root["selected_colormap"] = selected_colormap;
+        root["selected_colormap_name"] = colormaps[selected_colormap].name;
+        
+        // 保存Alpha控制点
+        root["alpha_control_points"] = json::array();
+        for (const auto& pt : alpha_control_pts) {
+            json point;
+            point["x"] = pt.x;
+            point["y"] = pt.y;
+            root["alpha_control_points"].push_back(point);
+        }
+        
+        // 保存当前颜色映射数据（以防用户使用了自定义颜色映射）
+        root["colormap_data"] = json::array();
+        for (size_t i = 0; i < current_colormap.size(); i += 4) {
+            json rgba;
+            rgba["r"] = static_cast<int>(current_colormap[i]);
+            rgba["g"] = static_cast<int>(current_colormap[i + 1]);
+            rgba["b"] = static_cast<int>(current_colormap[i + 2]);
+            rgba["a"] = static_cast<int>(current_colormap[i + 3]);
+            root["colormap_data"].push_back(rgba);
+        }
+        
+        // 保存所有可用的颜色映射名称（用于验证）
+        root["available_colormaps"] = json::array();
+        for (const auto& cm : colormaps) {
+            root["available_colormaps"].push_back(cm.name);
+        }
+        
+        // 写入文件
+        std::ofstream file(filepath);
+        if (!file.is_open()) {
+            std::cerr << "Error: Cannot open file for writing: " << filepath << std::endl;
+            return false;
+        }
+        
+        file << root.dump(2); // 2 spaces indentation for pretty printing
+        
+        std::cout << "Transfer function saved to: " << filepath << std::endl;
+        return true;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error saving transfer function: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+bool WebGPUTransferFunctionWidget::load_transfer_function(const std::string& filepath)
+{
+    try {
+        std::ifstream file(filepath);
+        if (!file.is_open()) {
+            std::cerr << "Error: Cannot open file for reading: " << filepath << std::endl;
+            return false;
+        }
+        
+        json root;
+        file >> root;
+        
+        // 验证版本
+        if (!root.contains("version") || root["version"] != "1.0") {
+            std::cerr << "Warning: Unsupported or missing version in transfer function file" << std::endl;
+        }
+        
+        // 加载Alpha控制点
+        if (root.contains("alpha_control_points")) {
+            alpha_control_pts.clear();
+            
+            for (const auto& point : root["alpha_control_points"]) {
+                vec2f pt;
+                pt.x = point["x"].get<float>();
+                pt.y = point["y"].get<float>();
+                alpha_control_pts.push_back(pt);
+            }
+            
+            // 确保至少有两个控制点（开始和结束）
+            if (alpha_control_pts.size() < 2) {
+                alpha_control_pts = {vec2f(0.f), vec2f(1.f)};
+            }
+            
+            // 按X坐标排序
+            std::sort(alpha_control_pts.begin(), alpha_control_pts.end(),
+                      [](const vec2f& a, const vec2f& b) { return a.x < b.x; });
+        }
+        
+        // 尝试匹配颜色映射
+        bool colormap_found = false;
+        if (root.contains("selected_colormap_name")) {
+            std::string colormap_name = root["selected_colormap_name"].get<std::string>();
+            
+            for (size_t i = 0; i < colormaps.size(); ++i) {
+                if (colormaps[i].name == colormap_name) {
+                    selected_colormap = i;
+                    colormap_found = true;
+                    break;
+                }
+            }
+        }
+        
+        // 如果没找到匹配的颜色映射，尝试加载保存的颜色数据
+        if (!colormap_found && root.contains("colormap_data")) {
+            std::cout << "Colormap not found, loading custom colormap data..." << std::endl;
+            
+            std::vector<uint8_t> custom_colormap;
+            custom_colormap.reserve(root["colormap_data"].size() * 4);
+            
+            for (const auto& rgba : root["colormap_data"]) {
+                custom_colormap.push_back(static_cast<uint8_t>(rgba["r"].get<int>()));
+                custom_colormap.push_back(static_cast<uint8_t>(rgba["g"].get<int>()));
+                custom_colormap.push_back(static_cast<uint8_t>(rgba["b"].get<int>()));
+                custom_colormap.push_back(static_cast<uint8_t>(rgba["a"].get<int>()));
+            }
+            
+            // 创建临时颜色映射
+            add_colormap(Colormap("Loaded Custom", custom_colormap, LINEAR));
+            selected_colormap = colormaps.size() - 1;
+        }
+        
+        // 更新颜色映射
+        update_colormap();
+        
+        std::cout << "Transfer function loaded from: " << filepath << std::endl;
+        return true;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error loading transfer function: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+std::string WebGPUTransferFunctionWidget::export_to_json() const
+{
+    try {
+        json root;
+        
+        root["version"] = "1.0";
+        root["selected_colormap_name"] = colormaps[selected_colormap].name;
+        
+        root["alpha_control_points"] = json::array();
+        for (const auto& pt : alpha_control_pts) {
+            json point;
+            point["x"] = pt.x;
+            point["y"] = pt.y;
+            root["alpha_control_points"].push_back(point);
+        }
+        
+        return root.dump(); // 紧凑格式，适合剪贴板
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error exporting to JSON: " << e.what() << std::endl;
+        return "";
+    }
+}
+
+bool WebGPUTransferFunctionWidget::import_from_json(const std::string& json_data)
+{
+    try {
+        json root = json::parse(json_data);
+        
+        // 加载Alpha控制点
+        if (root.contains("alpha_control_points")) {
+            alpha_control_pts.clear();
+            
+            for (const auto& point : root["alpha_control_points"]) {
+                vec2f pt;
+                pt.x = point["x"].get<float>();
+                pt.y = point["y"].get<float>();
+                alpha_control_pts.push_back(pt);
+            }
+            
+            if (alpha_control_pts.size() < 2) {
+                alpha_control_pts = {vec2f(0.f), vec2f(1.f)};
+            }
+            
+            std::sort(alpha_control_pts.begin(), alpha_control_pts.end(),
+                      [](const vec2f& a, const vec2f& b) { return a.x < b.x; });
+        }
+        
+        // 尝试匹配颜色映射
+        if (root.contains("selected_colormap_name")) {
+            std::string colormap_name = root["selected_colormap_name"].get<std::string>();
+            
+            for (size_t i = 0; i < colormaps.size(); ++i) {
+                if (colormaps[i].name == colormap_name) {
+                    selected_colormap = i;
+                    break;
+                }
+            }
+        }
+        
+        update_colormap();
+        return true;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Error importing from JSON: " << e.what() << std::endl;
+        return false;
+    }
+}
+
 void WebGPUTransferFunctionWidget::create_default_colormaps()
 {
     // Cool-Warm colormap
@@ -269,6 +479,45 @@ void WebGPUTransferFunctionWidget::draw_ui()
         }
         ImGui::EndCombo();
     }
+
+    ImGui::Separator();
+    if (ImGui::Button("Save TF")) {
+        // 这里你可以使用文件对话框，或者固定路径
+        static char filepath[256] = "transfer_function.json";
+        
+        // 如果你有文件对话框库（如 nativefiledialog），可以这样使用：
+        /*
+        nfdchar_t *outPath = NULL;
+        nfdresult_t result = NFD_SaveDialog("json", NULL, &outPath);
+        if (result == NFD_OKAY) {
+            save_transfer_function(outPath);
+            free(outPath);
+        }
+        */
+        
+        // 简单版本：使用固定文件名
+        save_transfer_function(filepath);
+    }
+    
+    ImGui::SameLine();
+    
+    if (ImGui::Button("Load TF")) {
+        static char filepath[256] = "transfer_function.json";
+        
+        // 同样，这里可以使用文件对话框
+        /*
+        nfdchar_t *outPath = NULL;
+        nfdresult_t result = NFD_OpenDialog("json", NULL, &outPath);
+        if (result == NFD_OKAY) {
+            load_transfer_function(outPath);
+            free(outPath);
+        }
+        */
+        
+        // 简单版本：使用固定文件名
+        load_transfer_function(filepath);
+    }
+
 
     vec2f canvas_size = ImGui::GetContentRegionAvail();
     

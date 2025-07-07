@@ -1,4 +1,5 @@
 #include "VIS3D.h"
+#include "KDTreeWrapper.h"
 #include "PipelineManager.h"
 #include <cstddef>
 
@@ -107,57 +108,60 @@ bool VIS3D::InitDataFromBinary(const std::string& filename)
     // return true;
 
     // for TEST
-    // 不读取文件，直接生成假数据
-    std::cout << "[VIS3D] Generating fake data (no real 3D data needed)..." << std::endl;
+    // // 不读取文件，直接生成假数据
+    // std::cout << "[VIS3D] Generating fake data (no real 3D data needed)..." << std::endl;
     
-    // 设置假的头部信息
-    m_header.width = 128;
-    m_header.height = 128;
-    m_header.depth = 128;
-    m_header.numPoints = 10;  // 随便几个点就行
+    // // 设置假的头部信息
+    // m_header.width = 128;
+    // m_header.height = 128;
+    // m_header.depth = 128;
+    // m_header.numPoints = 10;  // 随便几个点就行
     
-    std::cout << "[VIS3D] Fake data:" << std::endl;
-    std::cout << "[VIS3D]   Grid size: " << m_header.width << " x " << m_header.height << " x " << m_header.depth << std::endl;
-    std::cout << "[VIS3D]   Number of points: " << m_header.numPoints << std::endl;
+    // std::cout << "[VIS3D] Fake data:" << std::endl;
+    // std::cout << "[VIS3D]   Grid size: " << m_header.width << " x " << m_header.height << " x " << m_header.depth << std::endl;
+    // std::cout << "[VIS3D]   Number of points: " << m_header.numPoints << std::endl;
     
-    // 生成几个假的稀疏点
-    m_sparsePoints.clear();
-    m_sparsePoints.resize(m_header.numPoints);
-    for (std::size_t i = 0; i < m_header.numPoints; i++) {
-        m_sparsePoints[i].x = i * 10.0f;
-        m_sparsePoints[i].y = i * 10.0f;
-        m_sparsePoints[i].value = i * 0.1f;
-        m_sparsePoints[i].padding = 0.0f;
-    }
+    // // 生成几个假的稀疏点
+    // m_sparsePoints.clear();
+    // m_sparsePoints.resize(m_header.numPoints);
+    // for (std::size_t i = 0; i < m_header.numPoints; i++) {
+    //     m_sparsePoints[i].x = i * 10.0f;
+    //     m_sparsePoints[i].y = i * 10.0f;
+    //     m_sparsePoints[i].value = i * 0.1f;
+    //     m_sparsePoints[i].padding[0] = 0.0f;
+    // }
 
-    // 设置计算着色器的uniform参数
-    m_CS_Uniforms.gridWidth = static_cast<float>(m_header.width);
-    m_CS_Uniforms.gridHeight = static_cast<float>(m_header.height);
-    m_CS_Uniforms.gridDepth = static_cast<float>(m_header.depth);
-    m_CS_Uniforms.searchRadius = 50.0f;  // 随便一个值
+    // // 设置计算着色器的uniform参数
+    // m_CS_Uniforms.gridWidth = static_cast<float>(m_header.width);
+    // m_CS_Uniforms.gridHeight = static_cast<float>(m_header.height);
+    // m_CS_Uniforms.gridDepth = static_cast<float>(m_header.depth);
+    // m_CS_Uniforms.searchRadius = 50.0f;  // 随便一个值
     
-    // 计算值的范围
-    ComputeValueRange();
+    // // 计算值的范围
+    // ComputeValueRange();
+    // std::cout << "[VIS3D] Value range: [" << m_CS_Uniforms.minValue << ", " << m_CS_Uniforms.maxValue << "]" << std::endl;
 
-    // 生成假的KD-Tree数据
-    m_KDTreeData.points.clear();
-    m_KDTreeData.points.resize(m_header.numPoints);
-    for (std::size_t i = 0; i < m_header.numPoints; i++) {
-        m_KDTreeData.points[i].x = m_sparsePoints[i].x;
-        m_KDTreeData.points[i].y = m_sparsePoints[i].y;
-        m_KDTreeData.points[i].value = m_sparsePoints[i].value;
-        m_KDTreeData.points[i].padding = 0.0f;
-    }
-    m_KDTreeData.numLevels = 3;  // 随便一个值
+    // // 生成假的KD-Tree数据
+    // m_KDTreeData.points.clear();
+    // m_KDTreeData.points.resize(m_header.numPoints);
+    // for (std::size_t i = 0; i < m_header.numPoints; i++) {
+    //     m_KDTreeData.points[i].x = m_sparsePoints[i].x;
+    //     m_KDTreeData.points[i].y = m_sparsePoints[i].y;
+    //     m_KDTreeData.points[i].value = m_sparsePoints[i].value;
+    //     m_KDTreeData.points[i].padding[0] = 0.0f;
+    // }
+    // m_KDTreeData.numLevels = 3;  // 随便一个值
     
-    std::cout << "[VIS3D]   Total points: " << m_KDTreeData.points.size() << std::endl;
-    std::cout << "[VIS3D]   Number of levels: " << m_KDTreeData.numLevels << std::endl;
+    // std::cout << "[VIS3D]   Total points: " << m_KDTreeData.points.size() << std::endl;
+    // std::cout << "[VIS3D]   Number of levels: " << m_KDTreeData.numLevels << std::endl;
 
-    m_CS_Uniforms.totalNodes = m_KDTreeData.points.size();
-    m_CS_Uniforms.numLevels = m_KDTreeData.numLevels;
-    m_CS_Uniforms.interpolationMethod = 0; 
+    // m_CS_Uniforms.totalNodes = m_KDTreeData.points.size();
+    // m_CS_Uniforms.numLevels = m_KDTreeData.numLevels;
+    // m_CS_Uniforms.interpolationMethod = 0; 
 
-    return true;
+    std::cout << "NOTE: Please use the other InitDataFromBinary function with explicit dimensions for 3D data." << std::endl;
+
+    return false;
 }
 
 bool VIS3D::InitDataFromBinary(const std::string& path, uint32_t w, uint32_t h, uint32_t d)
@@ -187,7 +191,7 @@ bool VIS3D::InitDataFromBinary(const std::string& path, uint32_t w, uint32_t h, 
             {
                 const size_t idx = (static_cast<size_t>(z)*h + y)*w + x;
                 float v = volume[idx];
-                m_sparsePoints.push_back({float(x), float(y), float(z), v, 0.f});
+                m_sparsePoints.push_back({float(x), float(y), float(z), v, {}});
             }
     file.close();
 
@@ -204,17 +208,19 @@ bool VIS3D::InitDataFromBinary(const std::string& path, uint32_t w, uint32_t h, 
     m_CS_Uniforms.searchRadius = 50.0f;  // 随便一个值
 
 
-    // 生成假的KD-Tree数据
-    m_KDTreeData.points.clear();
-    m_KDTreeData.points.resize(m_header.numPoints);
-    for (std::size_t i = 0; i < m_header.numPoints; i++) {
-        m_KDTreeData.points[i].x = m_sparsePoints[i].x;
-        m_KDTreeData.points[i].y = m_sparsePoints[i].y;
-        m_KDTreeData.points[i].value = m_sparsePoints[i].value;
-        m_KDTreeData.points[i].padding = 0.0f;
+    // TEST FOR KD-Tree
+    KDTreeBuilder3D builder;
+    if (builder.buildTree(m_sparsePoints)) 
+    {
+        m_KDTreeData.points = builder.getGPUPoints();
+        m_KDTreeData.numLevels = builder.getNumLevels();
     }
-    m_KDTreeData.numLevels = 3;  // 随便一个值
-    
+    else 
+    {
+        std::cerr << "[ERROR]::VIS3D: Failed to build KD-Tree" << std::endl;
+        return false;
+    }
+
     std::cout << "[VIS3D]   Total points: " << m_KDTreeData.points.size() << std::endl;
     std::cout << "[VIS3D]   Number of levels: " << m_KDTreeData.numLevels << std::endl;
 
@@ -343,7 +349,7 @@ void VIS3D::SetSearchRadius(float radius)
 // ComputeStage 实现
 bool VIS3D::ComputeStage::Init(wgpu::Device device, wgpu::Queue queue, 
     const std::vector<SparsePoint3D>& sparsePoints, 
-    const KDTreeBuilder::TreeData& kdTreeData,
+    const KDTreeBuilder3D::TreeData3D& kdTreeData,
     const CS_Uniforms uniforms)
 {
     if (!InitSSBO(device, queue, sparsePoints)) return false;
@@ -394,7 +400,7 @@ bool VIS3D::ComputeStage::InitSSBO(wgpu::Device device, wgpu::Queue queue, const
 }
 
 bool VIS3D::ComputeStage::InitKDTreeBuffers(wgpu::Device device, wgpu::Queue queue, 
-    const KDTreeBuilder::TreeData& kdTreeData)
+    const KDTreeBuilder3D::TreeData3D& kdTreeData)
 {
     if (kdTreeData.points.empty()) {
         std::cout << "[ERROR]::InitKDTreeBuffers KD-Tree data is empty" << std::endl;
@@ -403,7 +409,7 @@ bool VIS3D::ComputeStage::InitKDTreeBuffers(wgpu::Device device, wgpu::Queue que
 
     wgpu::BufferDescriptor kdNodesBufferDesc = {};
     kdNodesBufferDesc.label = "KD-Tree 3D Points Buffer";
-    kdNodesBufferDesc.size = kdTreeData.points.size() * sizeof(GPUPoint);
+    kdNodesBufferDesc.size = kdTreeData.points.size() * sizeof(GPUPoint3D);
     kdNodesBufferDesc.usage = wgpu::BufferUsage::Storage | wgpu::BufferUsage::CopyDst;
     kdNodesBufferDesc.mappedAtCreation = false;
     
@@ -414,7 +420,7 @@ bool VIS3D::ComputeStage::InitKDTreeBuffers(wgpu::Device device, wgpu::Queue que
         return false;
     }
     
-    queue.writeBuffer(kdNodesBuffer, 0, kdTreeData.points.data(), kdTreeData.points.size() * sizeof(GPUPoint));
+    queue.writeBuffer(kdNodesBuffer, 0, kdTreeData.points.data(), kdTreeData.points.size() * sizeof(GPUPoint3D));
     return kdNodesBuffer != nullptr;
 }
 
