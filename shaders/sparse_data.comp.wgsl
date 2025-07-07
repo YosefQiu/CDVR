@@ -463,43 +463,6 @@ fn kdTreeNearestNeighborInterpolation(dataPos: vec2<f32>) -> f32 {
     return -1.0;
 }
 
-// // 使用KDTree的KNN质心插值（反距离加权）
-// fn kdTreeKNNCentroidInterpolation(dataPos: vec2<f32>) -> f32 {
-//     var knnResult = kdTreeKNNSearch(dataPos, 3, uniforms.searchRadius);
-    
-//     let firstPointID = getPointID(&knnResult, 0);
-//     if (firstPointID < 0) {
-//         return -1.0;
-//     }
-    
-//     // 检查是否有重合点
-//     let firstDist2 = getDist2(&knnResult, 0);
-//     if (firstDist2 < 0.0001) {
-//         return kdTreePoints[firstPointID].value;
-//     }
-    
-//     var weightedSum = 0.0;
-//     var weightSum = 0.0;
-    
-//     for (var i = 0; i < 3; i++) {
-//         let pointID = getPointID(&knnResult, i);
-//         if (pointID >= 0 && pointID < i32(uniforms.totalNodes)) {
-//             let dist2 = getDist2(&knnResult, i);
-//             if (dist2 > 0.0001) {  // 避免除零
-//                 let weight = 1.0 / dist2;
-//                 weightedSum += kdTreePoints[pointID].value * weight;
-//                 weightSum += weight;
-//             }
-//         }
-//     }
-    
-//     if (weightSum > 0.0) {
-//         return weightedSum / weightSum;
-//     }
-    
-//     return -1.0;
-// }
-
 fn kdTreeIDWWithPower(dataPos: vec2<f32>, k: i32, power: f32) -> f32 {
     var knnResult = kdTreeKNNSearch(dataPos, k, uniforms.searchRadius);
     

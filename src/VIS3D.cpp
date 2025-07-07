@@ -36,7 +36,7 @@ bool VIS3D::Initialize(glm::mat4 vMat, glm::mat4 pMat)
     m_RS_Uniforms.projMatrix = pMat;
     m_RS_Uniforms.modelMatrix = glm::mat4(1.0f);
 
-    if (!InitOutputTexture()) return false;
+    if (!InitOutputTexture(16, 16, 16)) return false;
     if (!m_computeStage.Init(m_device, m_queue, m_sparsePoints, m_KDTreeData, m_CS_Uniforms)) return false;
     if (!m_renderStage.Init(m_device, m_queue, m_RS_Uniforms, m_header.width, m_header.height, m_header.depth)) return false;
     if (!m_renderStage.CreatePipeline(m_device, m_swapChainFormat)) return false;
@@ -776,10 +776,11 @@ bool VIS3D::RenderStage::CreatePipeline(wgpu::Device device, wgpu::TextureFormat
         .setPrimitiveTopology(wgpu::PrimitiveTopology::TriangleList)
         .setVertexShader("../shaders/volume_raycasting.vert.wgsl", "main")
         .setFragmentShader("../shaders/volume_raycasting.frag.wgsl", "main")
-        .setVertexLayout(VertexLayoutBuilder::createPositionTexCoord3D())  // 需要3D纹理坐标
+        .setVertexLayout(VertexLayoutBuilder::createPositionTexCoord3D())
         .setSwapChainFormat(swapChainFormat)
+        .setCullMode(wgpu::CullMode::None)
         .setAlphaBlending()
-        .setVolumeRenderingDepth()  // 3D需要深度测试
+        .setReadOnlyDepth(wgpu::TextureFormat::Depth24Plus)  // 使用修复后的深度配置
         .build();
 
     if (!pipeline) {

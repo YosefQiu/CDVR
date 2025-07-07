@@ -80,6 +80,13 @@ struct DepthPresets {
         return depth;
     }
 
+    static wgpu::DepthStencilState volumeRenderingNoDepth() {
+        // 返回空的深度状态，完全禁用深度测试
+        wgpu::DepthStencilState depth = {};
+        // 不设置format，表示没有深度缓冲区
+        return depth;
+    }
+
     static wgpu::DepthStencilState volumeRenderingDepth(wgpu::TextureFormat depthFormat = wgpu::TextureFormat::Depth24Plus) {
         wgpu::StencilFaceState stencil = {};
         stencil.compare = wgpu::CompareFunction::Always;

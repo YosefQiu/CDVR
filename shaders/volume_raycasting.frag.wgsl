@@ -35,21 +35,10 @@ fn rayBoxIntersection(rayOrigin: vec3<f32>, rayDir: vec3<f32>) -> vec2<f32> {
     
     let tNear = max(max(tMin.x, tMin.y), tMin.z);
     let tFar = min(min(tMax.x, tMax.y), tMax.z);
-    
-    return vec2<f32>(max(tNear, 0.0), tFar);
+
+    return vec2<f32>(max(tNear, 0.001), max(tFar, 0.001));
 }
 
-// 简单的体积渲染
-fn simpleVolumeRender(input: FragmentInput) -> vec4<f32> {
-    // 直接采样3D纹理
-    let color = textureSample(inputTexture, textureSampler, input.texCoord);
-    
-    // 简单的深度衰减效果
-    let depth = length(input.localPos);
-    let depthFactor = 1.0 - depth * 0.3;
-    
-    return vec4<f32>(color.rgb * depthFactor, color.a);
-}
 
 // Ray casting 体积渲染
 fn raycastingVolumeRender(input: FragmentInput) -> vec4<f32> {
@@ -72,14 +61,14 @@ fn raycastingVolumeRender(input: FragmentInput) -> vec4<f32> {
     }
     
     // 设置采样参数
-    let stepSize = 0.01;
-    let maxSteps = i32((tFar - tNear) / stepSize) + 1;
+    let stepSize = 0.008; 
+    let maxSteps = min(i32((tFar - tNear) / stepSize) + 1, 150);  // 限制最大步数
     
     // 累积颜色
     var accumColor = vec4<f32>(0.0);
     var t = tNear;
     
-    for (var i = 0; i < maxSteps && i < 200; i++) {
+    for (var i = 0; i < maxSteps; i++) {
         if (accumColor.a > 0.95) {
             break;  // 提前终止
         }
@@ -99,15 +88,20 @@ fn raycastingVolumeRender(input: FragmentInput) -> vec4<f32> {
         // 采样体积数据
         let sampleColor = textureSample(inputTexture, textureSampler, texCoord);
         
-        // Alpha混合
-        let alpha = sampleColor.a * stepSize * 10.0;  // 调整密度
-        let oneMinusAccumAlpha = 1.0 - accumColor.a;
-        accumColor.x += sampleColor.x * alpha * oneMinusAccumAlpha;
-        accumColor.y += sampleColor.y * alpha * oneMinusAccumAlpha;
-        accumColor.z += sampleColor.z * alpha * oneMinusAccumAlpha;
-        accumColor.w += alpha * oneMinusAccumAlpha;
+        if (sampleColor.a > 0.001) {
+            // 调整Alpha混合 - 关键修改
+            let alpha = sampleColor.a * stepSize * 5.0;  // 降低密度系数
+            let clampedAlpha = min(alpha, 0.1);  // 限制单次贡献
+            let oneMinusAccumAlpha = 1.0 - accumColor.a;
+                
+            // Front-to-back alpha blending
+            accumColor += sampleColor * clampedAlpha * oneMinusAccumAlpha;
+        }
         
         t += stepSize;
+        if (t > tFar) {
+            break;
+        }
     }
     
     return accumColor;
