@@ -69,37 +69,64 @@ bool VIS2D::InitDataFromBinary(const std::string& filename)
               m_header.numPoints * sizeof(SparsePoint2D));
     
     file.close();
+    // std::string path = "./inputData.txt";
+    // std::ifstream file(path);
+    // if (!file) {
+    //     throw std::runtime_error("Cannot open " + path);
+    // }
 
-    // 2. 创建 Compute Uniform Buffer
+    // std::vector<float> vals;
+    // std::string line;
+    // while (std::getline(file, line)) {
+    //     std::istringstream iss(line);
+    //     float v;
+    //     if (iss >> v) vals.push_back(v);
+    // }
+    // m_header.width = 150;
+    // m_header.height = 450;
+    // m_header.numPoints = vals.size();
 
-    m_CS_Uniforms.gridWidth = static_cast<float>(m_header.width);
-    m_CS_Uniforms.gridHeight = static_cast<float>(m_header.height);
-    m_CS_Uniforms.totalPoints = static_cast<uint32_t>(m_sparsePoints.size());
-    m_CS_Uniforms.searchRadius = std::ceil(std::sqrt(m_CS_Uniforms.gridWidth * m_CS_Uniforms.gridWidth + 
-                                               m_CS_Uniforms.gridHeight * m_CS_Uniforms.gridHeight));
+    // for (uint32_t y = 0; y < m_header.height; ++y)
+    //     for (uint32_t x = 0; x < m_header.width; ++x)
+    //     {
+    //         const size_t idx = y * m_header.width + x;
+    //         if (idx < vals.size()) 
+    //         {
+    //             float v = vals[idx];
+    //             m_sparsePoints.push_back({float(x), float(y), v, 0.0f});
+    //         }
+    //     }
+
+    // // 2. 创建 Compute Uniform Buffer
+
+    // m_CS_Uniforms.gridWidth = static_cast<float>(m_header.width);
+    // m_CS_Uniforms.gridHeight = static_cast<float>(m_header.height);
+    // m_CS_Uniforms.totalPoints = static_cast<uint32_t>(m_sparsePoints.size());
+    // m_CS_Uniforms.searchRadius = std::ceil(std::sqrt(m_CS_Uniforms.gridWidth * m_CS_Uniforms.gridWidth + 
+    //                                            m_CS_Uniforms.gridHeight * m_CS_Uniforms.gridHeight));
     
-    // 计算值的范围（用于颜色映射）
-    ComputeValueRange();
+    // // 计算值的范围（用于颜色映射）
+    // ComputeValueRange();
 
-    // TEST FOR KD-Tree
-    KDTreeBuilder2D builder;
-    if (builder.buildTree(m_sparsePoints)) 
-    {
-        m_KDTreeData.points = builder.getGPUPoints();
-        m_KDTreeData.numLevels = builder.getNumLevels();
-    }
-    else 
-    {
-        std::cerr << "[ERROR]::VIS2D: Failed to build KD-Tree" << std::endl;
-        return false;
-    }
+    // // TEST FOR KD-Tree
+    // KDTreeBuilder2D builder;
+    // if (builder.buildTree(m_sparsePoints)) 
+    // {
+    //     m_KDTreeData.points = builder.getGPUPoints();
+    //     m_KDTreeData.numLevels = builder.getNumLevels();
+    // }
+    // else 
+    // {
+    //     std::cerr << "[ERROR]::VIS2D: Failed to build KD-Tree" << std::endl;
+    //     return false;
+    // }
  
-    std::cout << "[VIS2D]   Total points: " << m_KDTreeData.points.size() << std::endl;
-    std::cout << "[VIS2D]   Number of levels: " << m_KDTreeData.numLevels << std::endl;
+    // std::cout << "[VIS2D]   Total points: " << m_KDTreeData.points.size() << std::endl;
+    // std::cout << "[VIS2D]   Number of levels: " << m_KDTreeData.numLevels << std::endl;
 
-    m_CS_Uniforms.totalNodes = m_KDTreeData.points.size();
-    m_CS_Uniforms.numLevels = m_KDTreeData.numLevels;
-    m_CS_Uniforms.interpolationMethod = 0; 
+    // m_CS_Uniforms.totalNodes = m_KDTreeData.points.size();
+    // m_CS_Uniforms.numLevels = m_KDTreeData.numLevels;
+    // m_CS_Uniforms.interpolationMethod = 0; 
 
     // int test_w = 150 * 1;
     // int test_h = 450 * 1;
@@ -111,7 +138,7 @@ bool VIS2D::InitDataFromBinary(const std::string& filename)
     //     {
     //         int pixel_idx = h_idx * test_w + w_idx;
     //         // KDTree 遍历
-    //         SparsePoint queryPoint = {static_cast<float>(w_idx), static_cast<float>(h_idx), 0.0f, 0.0f};
+    //         SparsePoint2D queryPoint = {static_cast<float>(w_idx), static_cast<float>(h_idx), 0.0f, 0.0f};
     //         std::vector<GPUPoint2D> res;
     //         std::vector<float> distances;
     //         bool success = builder.knnSearch<1>(queryPoint, m_CS_Uniforms.searchRadius, res, distances);
