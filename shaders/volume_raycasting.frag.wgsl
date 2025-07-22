@@ -66,6 +66,15 @@ fn rayBoxIntersection(rayOrigin: vec3<f32>, rayDir: vec3<f32>) -> vec2<f32> {
     return vec2<f32>(tMin, tMax);
 }
 
+// alpha correction
+fn alphaCorrection(alpha: f32, stepSize: f32, referenceStepSize: f32) -> f32 {
+    if (alpha <= 0.0) {
+        return 0.0;
+    }
+    let ratio = stepSize / referenceStepSize;
+    return 1.0 - pow(1.0 - alpha, ratio);
+}
+
 
 
 fn advancedVolumeRender(input: FragmentInput) -> vec4<f32> {
@@ -88,8 +97,10 @@ fn advancedVolumeRender(input: FragmentInput) -> vec4<f32> {
     }
     
     // 设置采样参数
-    let stepSize =  0.005;  // 更小的步长，更好的质量
-    let maxSteps = i32((tFar - tNear) / stepSize) + 1;
+    let density = 0.5;
+    let stepSize =  0.005;  // 每步采样距离
+    let referenceStepSize = 0.01;  // 参考步长，用于 alpha 校正
+    let maxSteps = min(i32((tFar - tNear) / stepSize) + 1, 5000);
     
     // 光照设置
     let lightDir = normalize(vec3<f32>(1.0, 1.0, 1.0));
@@ -133,8 +144,9 @@ fn advancedVolumeRender(input: FragmentInput) -> vec4<f32> {
 
         var dst :vec4<f32> = accumColor;
         var src :vec4<f32> = sampleColor * lighting;
-        src.a = src.a * 0.5;  // 减少透明度以避免过度叠加
-        
+        src.a = src.a * density;  
+        src.a = alphaCorrection(src.a, stepSize, referenceStepSize);
+
         // Front to back
         dst.r = dst.r + (1.0 - dst.a) * src.a * src.r;
         dst.g = dst.g + (1.0 - dst.a) * src.a * src.g;

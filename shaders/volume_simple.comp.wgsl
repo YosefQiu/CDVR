@@ -405,33 +405,9 @@ fn inverseDistanceWeighting3D(dataPos: vec3<f32>) -> f32 {
 
 // 主插值函数
 fn interpolateValue(dataPos: vec3<f32>) -> f32 {
-    switch uniforms.interpolationMethod {
-        case 0u: {
-            return nearestNeighborInterpolation3D(dataPos);
-        }
-        case 1u: {
-            return nearestNeighborInterpolation3D(dataPos);
-        }
-        case 2u: {
-            return nearestNeighborInterpolation3D(dataPos);
-        }
-        default: {
-            return nearestNeighborInterpolation3D(dataPos);
-        }
-    }
+    return nearestNeighborInterpolation3D(dataPos);
 }
 
-
-
-fn interpolateValue2(pos: vec3<f32>) -> f32 {
-    // 将浮点位置转为整数索引，并防止越界
-    let xi = clamp(i32(pos.x), 0, i32(uniforms.gridWidth) - 1);
-    let yi = clamp(i32(pos.y), 0, i32(uniforms.gridHeight) - 1);
-    let zi = clamp(i32(pos.z), 0, i32(uniforms.gridDepth) - 1);
-
-    let flat_idx = zi * i32(uniforms.gridWidth) * i32(uniforms.gridHeight) + yi * i32(uniforms.gridWidth) + xi;
-    return sparsePoints[flat_idx].value;
-}
 
 // ============ Main Compute Shader ============
 
@@ -456,7 +432,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     );
     
     // 使用真实数据插值
-    let interpolatedValue = interpolateValue2(dataPos);
+    let interpolatedValue = interpolateValue(dataPos);
 
     var color = vec4<f32>(1.0, 1.0, 1.0, 1.0); 
     if (interpolatedValue != -1.0) {
@@ -471,14 +447,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         color = getColorFromTF(normalized);
         
     }
-
-
-    // if (interpolatedValue == 255.0)
-    // {
-    //     color = vec4<f32>(0.0, 0.0, 0.0, 0.0); // 如果值为255，则设置为透明
-    // } else {
-    //     color.a = 1.0; // 设置不透明度
-    // }
 
     textureStore(outputTexture, vec3<i32>(global_id.xyz), color);
 
