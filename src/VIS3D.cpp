@@ -2,6 +2,7 @@
 #include "KDTreeWrapper.h"
 #include "PipelineManager.h"
 #include <cstddef>
+#include <vector>
 
 
 VIS3D::VIS3D(wgpu::Device device, wgpu::Queue queue, wgpu::TextureFormat swapChainFormat)
@@ -30,7 +31,7 @@ bool VIS3D::Initialize(glm::mat4 vMat, glm::mat4 pMat)
 {
     std::cout << "[VIS3D] Initializing Transfer Function 3D Test..." << std::endl;
 
-    if (!InitDataFromBinary("./data.raw", 16, 16, 16)) return false;
+    if (!InitDataFromBinary("./data16.raw")) return false;
     
     m_RS_Uniforms.viewMatrix = vMat;
     m_RS_Uniforms.projMatrix = pMat;
@@ -46,47 +47,84 @@ bool VIS3D::Initialize(glm::mat4 vMat, glm::mat4 pMat)
     return true;
 }
 
+
+                        
 bool VIS3D::InitDataFromBinary(const std::string& filename) 
 {
-    // std::ifstream file(filename, std::ios::binary);
-    // if (!file.is_open()) {
-    //     std::cerr << "Failed to open file: " << filename << std::endl;
-    //     return false;
+    std::ifstream file(filename, std::ios::binary);
+    if (!file.is_open()) {
+        std::cerr << "Failed to open file: " << filename << std::endl;
+        return false;
+    }
+
+    int data_size = 16;
+
+    // 读取头部信息 (3D)
+    DataHeader header3D;
+    header3D.width = data_size;
+    header3D.height = data_size;
+    header3D.depth = data_size;
+    header3D.numPoints = header3D.width * header3D.height * header3D.depth;
+
+    m_header.width = header3D.width;
+    m_header.height = header3D.height;
+    m_header.depth = header3D.depth;
+    m_header.numPoints = header3D.numPoints;
+    
+    std::cout << "[VIS3D] Loading sparse data:" << std::endl;
+    std::cout << "[VIS3D]   Grid size: " << m_header.width << " x " << m_header.height << " x " << m_header.depth << std::endl;
+    std::cout << "[VIS3D]   Number of points: " << m_header.numPoints << std::endl;
+    
+    // 读取稀疏点数据
+    std::vector<float> rawData(header3D.numPoints);
+    file.read(reinterpret_cast<char*>(rawData.data()), header3D.numPoints * sizeof(float));
+    file.close();
+    m_sparsePoints.clear();
+    // m_sparsePoints.resize(m_header.numPoints);
+    // for (int z = 0; z < (int)header3D.depth; z++)
+    // {
+    //     for (int y = 0; y < (int)header3D.height; y++)
+    //     {
+    //         for (int x = 0; x < (int)header3D.width; x++)
+    //         {
+    //             size_t idx = z * (int)header3D.width * (int)header3D.height + y * (int)header3D.width + x;
+    //             float value = rawData[idx];
+
+    //             SparsePoint3D p;
+    //             p.x = static_cast<float>(x);
+    //             p.y = static_cast<float>(y);
+    //             p.z = static_cast<float>(z);
+    //             p.value = value;
+    //             m_sparsePoints[idx] = p;
+    //         }
+    //     }
     // }
 
-    // // 读取头部信息 (假设2D数据，我们扩展为3D)
-    // DataHeader header2D;
-    // file.read(reinterpret_cast<char*>(&header2D), sizeof(DataHeader) - sizeof(uint32_t)); // 不包含depth
-    
-    // m_header.width = header2D.width;
-    // m_header.height = header2D.height;
-    // m_header.depth = std::max(header2D.width, header2D.height) / 2; // 简单设置深度
-    // m_header.numPoints = header2D.numPoints;
-    
-    // std::cout << "[VIS3D] Loading sparse data:" << std::endl;
-    // std::cout << "[VIS3D]   Grid size: " << m_header.width << " x " << m_header.height << " x " << m_header.depth << std::endl;
-    // std::cout << "[VIS3D]   Number of points: " << m_header.numPoints << std::endl;
-    
-    // // 读取稀疏点数据
-    // m_sparsePoints.resize(m_header.numPoints);
-    // file.read(reinterpret_cast<char*>(m_sparsePoints.data()), 
-    //           m_header.numPoints * sizeof(SparsePoint));
-    
-    // file.close();
+    for (uint32_t z = 0; z < data_size; ++z)
+        for (uint32_t y = 0; y < data_size; ++y)
+            for (uint32_t x = 0; x < data_size; ++x)
+            {
+                const size_t idx = (static_cast<size_t>(z)*data_size + y)*data_size + x;
+                float v = rawData[idx];
+                m_sparsePoints.push_back({float(x), float(y), float(z), v, {}});
+            }
 
-    // // 设置计算着色器的uniform参数
-    // m_CS_Uniforms.gridWidth = static_cast<float>(m_header.width);
-    // m_CS_Uniforms.gridHeight = static_cast<float>(m_header.height);
-    // m_CS_Uniforms.gridDepth = static_cast<float>(m_header.depth);
-    // m_CS_Uniforms.searchRadius = std::ceil(std::sqrt(m_CS_Uniforms.gridWidth * m_CS_Uniforms.gridWidth + 
-    //                                                  m_CS_Uniforms.gridHeight * m_CS_Uniforms.gridHeight +
-    //                                                  m_CS_Uniforms.gridDepth * m_CS_Uniforms.gridDepth));
-    
-    // // 计算值的范围
-    // ComputeValueRange();
 
-    // // 构建KD-Tree
-    // KDTreeBuilder builder;
+    std::cout << "[VIS3D] Sparse points loaded successfully!" << std::endl;
+
+    // 设置计算着色器的uniform参数
+    m_CS_Uniforms.gridWidth = static_cast<float>(m_header.width);
+    m_CS_Uniforms.gridHeight = static_cast<float>(m_header.height);
+    m_CS_Uniforms.gridDepth = static_cast<float>(m_header.depth);
+    m_CS_Uniforms.searchRadius = std::ceil(std::sqrt(m_CS_Uniforms.gridWidth * m_CS_Uniforms.gridWidth + 
+                                                     m_CS_Uniforms.gridHeight * m_CS_Uniforms.gridHeight +
+                                                     m_CS_Uniforms.gridDepth * m_CS_Uniforms.gridDepth));
+
+    // 计算值的范围
+    ComputeValueRange();
+
+    // 构建KD-Tree
+    // KDTreeBuilder3D builder;
     // if (builder.buildTree(m_sparsePoints)) 
     // {
     //     m_KDTreeData.points = builder.getGPUPoints();
@@ -105,132 +143,89 @@ bool VIS3D::InitDataFromBinary(const std::string& filename)
     // m_CS_Uniforms.numLevels = m_KDTreeData.numLevels;
     // m_CS_Uniforms.interpolationMethod = 0; 
 
-    // return true;
+    // debug only not use kdtree
+    GPUPoint3D pts;
+    pts.x = 0.0f;
+    pts.y = 0.0f;
+    pts.z = 0.0f;
+    pts.value = 0.0f;
+    m_KDTreeData.points = { pts };
+    m_KDTreeData.numLevels = 1;
+    m_CS_Uniforms.totalNodes = m_sparsePoints.size();
+    m_CS_Uniforms.totalPoints = m_sparsePoints.size();
+    m_CS_Uniforms.numLevels = 1; // 只有一层，因为没有构建KD-Tree
+    m_CS_Uniforms.interpolationMethod = 0; // 默认插值方法
 
-    // for TEST
-    // // 不读取文件，直接生成假数据
-    // std::cout << "[VIS3D] Generating fake data (no real 3D data needed)..." << std::endl;
-    
-    // // 设置假的头部信息
-    // m_header.width = 128;
-    // m_header.height = 128;
-    // m_header.depth = 128;
-    // m_header.numPoints = 10;  // 随便几个点就行
-    
-    // std::cout << "[VIS3D] Fake data:" << std::endl;
-    // std::cout << "[VIS3D]   Grid size: " << m_header.width << " x " << m_header.height << " x " << m_header.depth << std::endl;
-    // std::cout << "[VIS3D]   Number of points: " << m_header.numPoints << std::endl;
-    
-    // // 生成几个假的稀疏点
-    // m_sparsePoints.clear();
-    // m_sparsePoints.resize(m_header.numPoints);
-    // for (std::size_t i = 0; i < m_header.numPoints; i++) {
-    //     m_sparsePoints[i].x = i * 10.0f;
-    //     m_sparsePoints[i].y = i * 10.0f;
-    //     m_sparsePoints[i].value = i * 0.1f;
-    //     m_sparsePoints[i].padding[0] = 0.0f;
-    // }
-
-    // // 设置计算着色器的uniform参数
-    // m_CS_Uniforms.gridWidth = static_cast<float>(m_header.width);
-    // m_CS_Uniforms.gridHeight = static_cast<float>(m_header.height);
-    // m_CS_Uniforms.gridDepth = static_cast<float>(m_header.depth);
-    // m_CS_Uniforms.searchRadius = 50.0f;  // 随便一个值
-    
-    // // 计算值的范围
-    // ComputeValueRange();
-    // std::cout << "[VIS3D] Value range: [" << m_CS_Uniforms.minValue << ", " << m_CS_Uniforms.maxValue << "]" << std::endl;
-
-    // // 生成假的KD-Tree数据
-    // m_KDTreeData.points.clear();
-    // m_KDTreeData.points.resize(m_header.numPoints);
-    // for (std::size_t i = 0; i < m_header.numPoints; i++) {
-    //     m_KDTreeData.points[i].x = m_sparsePoints[i].x;
-    //     m_KDTreeData.points[i].y = m_sparsePoints[i].y;
-    //     m_KDTreeData.points[i].value = m_sparsePoints[i].value;
-    //     m_KDTreeData.points[i].padding[0] = 0.0f;
-    // }
-    // m_KDTreeData.numLevels = 3;  // 随便一个值
-    
-    // std::cout << "[VIS3D]   Total points: " << m_KDTreeData.points.size() << std::endl;
-    // std::cout << "[VIS3D]   Number of levels: " << m_KDTreeData.numLevels << std::endl;
-
-    // m_CS_Uniforms.totalNodes = m_KDTreeData.points.size();
-    // m_CS_Uniforms.numLevels = m_KDTreeData.numLevels;
-    // m_CS_Uniforms.interpolationMethod = 0; 
-
-    std::cout << "NOTE: Please use the other InitDataFromBinary function with explicit dimensions for 3D data." << std::endl;
-
-    return false;
-}
-
-bool VIS3D::InitDataFromBinary(const std::string& path, uint32_t w, uint32_t h, uint32_t d)
-{
-    std::ifstream file(path, std::ios::binary);
-    if (!file.is_open()) {
-        std::cerr << "Failed to open file: " << path << std::endl;
-        return false;
-    }
-
-    
-    m_header.width = w;
-    m_header.height = h;
-    m_header.depth = d;
-    m_header.numPoints = w * h * d;
-
-    m_sparsePoints.clear();
-    const size_t voxelCnt   = static_cast<size_t>(w)*h*d;
-    const size_t byteCnt    = voxelCnt * sizeof(float);
-    std::vector<float> volume(voxelCnt);
-    file.read(reinterpret_cast<char*>(volume.data()), byteCnt);
-    if (!file) { std::cerr << "[VIS3D] Failed reading data (" << file.gcount() << " B)\n"; return false; }
-
-    for (uint32_t z = 0; z < d; ++z)
-        for (uint32_t y = 0; y < h; ++y)
-            for (uint32_t x = 0; x < w; ++x)
-            {
-                const size_t idx = (static_cast<size_t>(z)*h + y)*w + x;
-                float v = volume[idx];
-                m_sparsePoints.push_back({float(x), float(y), float(z), v, {}});
-            }
-    file.close();
-
-    std::cout << "[VIS3D] 3D data:" << std::endl;
-    std::cout << "[VIS3D]   Grid size: " << m_header.width << " x " << m_header.height << " x " << m_header.depth << std::endl;
-    std::cout << "[VIS3D]   Number of points: " << m_header.numPoints << std::endl;
-    ComputeValueRange();
-    
-    // 设置计算着色器的uniform参数
-    m_CS_Uniforms.gridWidth = static_cast<float>(m_header.width);
-    m_CS_Uniforms.gridHeight = static_cast<float>(m_header.height);
-    m_CS_Uniforms.gridDepth = static_cast<float>(m_header.depth);
-    m_CS_Uniforms.totalPoints = static_cast<uint32_t>(m_sparsePoints.size());
-    m_CS_Uniforms.searchRadius = 50.0f;  // 随便一个值
-
-
-    // TEST FOR KD-Tree
-    KDTreeBuilder3D builder;
-    if (builder.buildTree(m_sparsePoints)) 
-    {
-        m_KDTreeData.points = builder.getGPUPoints();
-        m_KDTreeData.numLevels = builder.getNumLevels();
-    }
-    else 
-    {
-        std::cerr << "[ERROR]::VIS3D: Failed to build KD-Tree" << std::endl;
-        return false;
-    }
-
-    std::cout << "[VIS3D]   Total points: " << m_KDTreeData.points.size() << std::endl;
-    std::cout << "[VIS3D]   Number of levels: " << m_KDTreeData.numLevels << std::endl;
-
-    m_CS_Uniforms.totalNodes = m_KDTreeData.points.size();
-    m_CS_Uniforms.numLevels = m_KDTreeData.numLevels;
-    m_CS_Uniforms.interpolationMethod = 0; 
-    
     return true;
-    
 }
+
+// bool VIS3D::InitDataFromBinary(const std::string& path, uint32_t w, uint32_t h, uint32_t d)
+// {
+//     std::ifstream file(path, std::ios::binary);
+//     if (!file.is_open()) {
+//         std::cerr << "Failed to open file: " << path << std::endl;
+//         return false;
+//     }
+
+    
+//     m_header.width = w;
+//     m_header.height = h;
+//     m_header.depth = d;
+//     m_header.numPoints = w * h * d;
+
+//     m_sparsePoints.clear();
+//     const size_t voxelCnt   = static_cast<size_t>(w)*h*d;
+//     const size_t byteCnt    = voxelCnt * sizeof(float);
+//     std::vector<float> volume(voxelCnt);
+//     file.read(reinterpret_cast<char*>(volume.data()), byteCnt);
+//     if (!file) { std::cerr << "[VIS3D] Failed reading data (" << file.gcount() << " B)\n"; return false; }
+
+//     for (uint32_t z = 0; z < d; ++z)
+//         for (uint32_t y = 0; y < h; ++y)
+//             for (uint32_t x = 0; x < w; ++x)
+//             {
+//                 const size_t idx = (static_cast<size_t>(z)*h + y)*w + x;
+//                 float v = volume[idx];
+//                 m_sparsePoints.push_back({float(x), float(y), float(z), v, {}});
+//             }
+//     file.close();
+
+//     std::cout << "[VIS3D] 3D data:" << std::endl;
+//     std::cout << "[VIS3D]   Grid size: " << m_header.width << " x " << m_header.height << " x " << m_header.depth << std::endl;
+//     std::cout << "[VIS3D]   Number of points: " << m_header.numPoints << std::endl;
+//     ComputeValueRange();
+    
+//     // 设置计算着色器的uniform参数
+//     m_CS_Uniforms.gridWidth = static_cast<float>(m_header.width);
+//     m_CS_Uniforms.gridHeight = static_cast<float>(m_header.height);
+//     m_CS_Uniforms.gridDepth = static_cast<float>(m_header.depth);
+//     m_CS_Uniforms.totalPoints = static_cast<uint32_t>(m_sparsePoints.size());
+//     m_CS_Uniforms.searchRadius = 50.0f;  // 随便一个值
+
+
+//     // TEST FOR KD-Tree
+//     KDTreeBuilder3D builder;
+//     if (builder.buildTree(m_sparsePoints)) 
+//     {
+//         m_KDTreeData.points = builder.getGPUPoints();
+//         m_KDTreeData.numLevels = builder.getNumLevels();
+//     }
+//     else 
+//     {
+//         std::cerr << "[ERROR]::VIS3D: Failed to build KD-Tree" << std::endl;
+//         return false;
+//     }
+
+//     std::cout << "[VIS3D]   Total points: " << m_KDTreeData.points.size() << std::endl;
+//     std::cout << "[VIS3D]   Number of levels: " << m_KDTreeData.numLevels << std::endl;
+
+//     m_CS_Uniforms.totalNodes = m_KDTreeData.points.size();
+//     m_CS_Uniforms.numLevels = m_KDTreeData.numLevels;
+//     m_CS_Uniforms.interpolationMethod = 0; 
+    
+//     return true;
+    
+// }
 
 void VIS3D::ComputeValueRange()
 {
@@ -780,7 +775,7 @@ bool VIS3D::RenderStage::CreatePipeline(wgpu::Device device, wgpu::TextureFormat
         .setSwapChainFormat(swapChainFormat)
         .setCullMode(wgpu::CullMode::None)
         .setAlphaBlending()
-        .setReadOnlyDepth(wgpu::TextureFormat::Depth24Plus)  // 使用修复后的深度配置
+        .setReadOnlyDepth()  
         .build();
 
     if (!pipeline) {

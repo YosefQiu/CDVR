@@ -286,6 +286,7 @@ fn kdTreeNearestNeighborInterpolation3D(dataPos: vec3<f32>) -> f32 {
     if (pointID >= 0 && pointID < i32(uniforms.totalNodes)) {
         return kdTreePoints[pointID].value;
     }
+
     
     return -1.0;
 }
@@ -422,6 +423,26 @@ fn interpolateValue(dataPos: vec3<f32>) -> f32 {
 
 
 
+fn interpolateValue2(pos: vec3<f32>) -> f32 {
+    // 将浮点位置转为整数索引，并防止越界
+    let xi = clamp(i32(pos.x), 0, i32(uniforms.gridWidth) - 1);
+    let yi = clamp(i32(pos.y), 0, i32(uniforms.gridHeight) - 1);
+    let zi = clamp(i32(pos.z), 0, i32(uniforms.gridDepth) - 1);
+
+    let xf = f32(xi);
+    let yf = f32(yi);
+    let zf = f32(zi);
+
+    for (var i = 0u; i < uniforms.totalPoints; i++) {
+        let p = sparsePoints[i];
+        if (abs(p.x - xf) < 0.01 && abs(p.y - yf) < 0.01 && abs(p.z - zf) < 0.01) {
+            return p.value;
+        }
+    }
+
+
+    return -1.0;
+}
 
 // ============ Main Compute Shader ============
 
@@ -446,21 +467,29 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     );
     
     // 使用真实数据插值
-    let interpolatedValue = interpolateValue(dataPos);
-    
-    var color = vec4<f32>(0.0, 0.0, 0.0, 0.0); // 默认透明
-    
+    let interpolatedValue = interpolateValue2(dataPos);
+
+    var color = vec4<f32>(1.0, 1.0, 1.0, 1.0); 
     if (interpolatedValue != -1.0) {
         // 标准化值到[0,1]
+        var epsilon = 10.0 / 256.0;
+
         let normalized = clamp(
-            (interpolatedValue - uniforms.minValue) / (uniforms.maxValue - uniforms.minValue),
-            0.0, 1.0
+            (interpolatedValue - (-1.0)) / (1.0 - (-1.0)),
+            0.0 + epsilon, 1.0 - epsilon
         );
         
         color = getColorFromTF(normalized);
         
     }
-    
-    
+
+
+    // if (interpolatedValue == 255.0)
+    // {
+    //     color = vec4<f32>(0.0, 0.0, 0.0, 0.0); // 如果值为255，则设置为透明
+    // } else {
+    //     color.a = 1.0; // 设置不透明度
+    // }
+
     textureStore(outputTexture, vec3<i32>(global_id.xyz), color);
 }

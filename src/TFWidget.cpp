@@ -86,7 +86,7 @@ WebGPUTransferFunctionWidget::WebGPUTransferFunctionWidget(WGPUDevice device, WG
     init_webgpu_resources();
     
     // 先创建默认颜色映射
-    create_default_colormaps();
+    // create_default_colormaps();
     
     // 然后尝试加载嵌入的预设（如果有的话）
     try {

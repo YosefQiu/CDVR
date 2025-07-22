@@ -19,20 +19,20 @@ public:
 
     struct CS_Uniforms 
     {
-        float minValue;
-        float maxValue;
-        float gridWidth;
-        float gridHeight;
+        float minValue = -1.0f;
+        float maxValue = 1.0f;
+        float gridWidth = 1.0f;
+        float gridHeight = 1.0f;
 
-        float gridDepth;
-        float searchRadius;
-        float padding1;
-        float padding2;
+        float gridDepth = 1.0f;
+        float searchRadius = 1.0f;
+        float padding1 = 0.0f;
+        float padding2 = 0.0f;
 
-        uint32_t totalNodes;
-        uint32_t totalPoints;
-        uint32_t numLevels;
-        uint32_t interpolationMethod;
+        uint32_t totalNodes = 0;
+        uint32_t totalPoints = 0;
+        uint32_t numLevels = 0;
+        uint32_t interpolationMethod = 0;
 
     };
 
@@ -101,7 +101,7 @@ public:
     bool Initialize(glm::mat4 vMat, glm::mat4 pMat);
     bool InitOutputTexture(uint32_t width = 128, uint32_t height = 128, uint32_t depth = 128, wgpu::TextureFormat format = wgpu::TextureFormat::RGBA16Float);
     bool InitDataFromBinary(const std::string& filename);
-    bool InitDataFromBinary(const std::string& path, uint32_t w=64, uint32_t h=64, uint32_t d=64);
+    bool InitDataFromBinary2(const std::string& path, uint32_t w=64, uint32_t h=64, uint32_t d=64);
     void Render(wgpu::RenderPassEncoder renderPass);
     void OnWindowResize(glm::mat4 veiwMatrix, glm::mat4 projMatrix);
     void UpdateSSBO(wgpu::TextureView tfTextureView);

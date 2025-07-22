@@ -16,7 +16,7 @@ struct SparsePoint3D
     float y;
     float z;
     float value;
-    float padding[3];  // 填充到32字节对齐
+    float padding[4];  // 填充到32字节对齐
 };
 
 

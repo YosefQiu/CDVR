@@ -61,15 +61,15 @@ fn raycastingVolumeRender(input: FragmentInput) -> vec4<f32> {
     }
     
     // 设置采样参数
-    let stepSize = 0.008; 
-    let maxSteps = min(i32((tFar - tNear) / stepSize) + 1, 150);  // 限制最大步数
+    let stepSize = 0.001; 
+    let maxSteps = min(i32((tFar - tNear) / stepSize) + 1, 5000);  // 限制最大步数
     
     // 累积颜色
     var accumColor = vec4<f32>(0.0);
     var t = tNear;
     
     for (var i = 0; i < maxSteps; i++) {
-        if (accumColor.a > 0.95) {
+        if (accumColor.a > 0.99) {
             break;  // 提前终止
         }
         
@@ -86,24 +86,24 @@ fn raycastingVolumeRender(input: FragmentInput) -> vec4<f32> {
         }
         
         // 采样体积数据
-        let sampleColor = textureSample(inputTexture, textureSampler, texCoord);
-        
-        if (sampleColor.a > 0.001) {
-            // 调整Alpha混合 - 关键修改
-            let alpha = sampleColor.a * stepSize * 5.0;  // 降低密度系数
-            let clampedAlpha = min(alpha, 0.1);  // 限制单次贡献
-            let oneMinusAccumAlpha = 1.0 - accumColor.a;
-                
-            // Front-to-back alpha blending
-            accumColor += sampleColor * clampedAlpha * oneMinusAccumAlpha;
-        }
+        var sampleColor = textureSample(inputTexture, textureSampler, texCoord);
+
+        var dst :vec4<f32> = accumColor;
+        var src :vec4<f32> = sampleColor;
+        // Front to back
+        dst.r = dst.r + (1.0 - dst.a) * src.a * src.r;
+        dst.g = dst.g + (1.0 - dst.a) * src.a * src.g;
+        dst.b = dst.b + (1.0 - dst.a) * src.a * src.b;
+        dst.a = dst.a + (1.0 - dst.a) * src.a;
+
+        accumColor = dst;
         
         t += stepSize;
         if (t > tFar) {
             break;
         }
     }
-    
+
     return accumColor;
 }
 
@@ -127,7 +127,7 @@ fn advancedVolumeRender(input: FragmentInput) -> vec4<f32> {
     }
     
     // 设置采样参数
-    let stepSize = 0.001;  // 更小的步长，更好的质量
+    let stepSize = 0.0001;  // 更小的步长，更好的质量
     let maxSteps = i32((tFar - tNear) / stepSize) + 1;
     
     // 光照设置
@@ -137,8 +137,8 @@ fn advancedVolumeRender(input: FragmentInput) -> vec4<f32> {
     var accumColor = vec4<f32>(0.0);
     var t = tNear;
     
-    for (var i = 0; i < maxSteps && i < 300; i++) {
-        if (accumColor.a > 0.98) {
+    for (var i = 0; i < maxSteps && i < 5000; i++) {
+        if (accumColor.a > 0.99) {
             break;
         }
         
@@ -155,42 +155,40 @@ fn advancedVolumeRender(input: FragmentInput) -> vec4<f32> {
         // 采样体积数据
         let sampleColor = textureSample(inputTexture, textureSampler, texCoord);
         
-        if (sampleColor.a > 0.01) {  // 只处理非透明的采样点
-            // 计算梯度（简单的数值梯度）
-            let eps = 0.01;
-            let gradX = textureSample(inputTexture, textureSampler, texCoord + vec3<f32>(eps, 0.0, 0.0)).a
+       // 计算梯度（简单的数值梯度）
+        let eps = 0.01;
+        let gradX = textureSample(inputTexture, textureSampler, texCoord + vec3<f32>(eps, 0.0, 0.0)).a
                       - textureSample(inputTexture, textureSampler, texCoord - vec3<f32>(eps, 0.0, 0.0)).a;
-            let gradY = textureSample(inputTexture, textureSampler, texCoord + vec3<f32>(0.0, eps, 0.0)).a
+        let gradY = textureSample(inputTexture, textureSampler, texCoord + vec3<f32>(0.0, eps, 0.0)).a
                       - textureSample(inputTexture, textureSampler, texCoord - vec3<f32>(0.0, eps, 0.0)).a;
-            let gradZ = textureSample(inputTexture, textureSampler, texCoord + vec3<f32>(0.0, 0.0, eps)).a
+        let gradZ = textureSample(inputTexture, textureSampler, texCoord + vec3<f32>(0.0, 0.0, eps)).a
                       - textureSample(inputTexture, textureSampler, texCoord - vec3<f32>(0.0, 0.0, eps)).a;
             
-            let normal = normalize(vec3<f32>(gradX, gradY, gradZ));
+        let normal = normalize(vec3<f32>(gradX, gradY, gradZ));
             
-            // 简单的光照计算
-            let diffuse = max(dot(normal, lightDir), 0.0);
-            let lighting = 0.3 + 0.7 * diffuse;  // 环境光 + 漫反射
-            
-            // Alpha混合 - 修复：分别处理RGB和A分量
-            let alpha = sampleColor.a * stepSize * 15.0;
-            let oneMinusAccumAlpha = 1.0 - accumColor.a;
-            let lightedColor = sampleColor * lighting;
-            
-            // 分别更新RGBA分量
-            accumColor.x += lightedColor.x * alpha * oneMinusAccumAlpha;
-            accumColor.y += lightedColor.y * alpha * oneMinusAccumAlpha;
-            accumColor.z += lightedColor.z * alpha * oneMinusAccumAlpha;
-            accumColor.w += alpha * oneMinusAccumAlpha;
-        }
+        // 简单的光照计算
+        let diffuse = max(dot(normal, lightDir), 0.0);
+        let lighting = 0.3 + 0.7 * diffuse;  // 环境光 + 漫反射
+
+        var dst :vec4<f32> = accumColor;
+        var src :vec4<f32> = sampleColor * lighting;
+        src.a = src.a * 0.5;  // 减少透明度以避免过度叠加
+        
+        // Front to back
+        dst.r = dst.r + (1.0 - dst.a) * src.a * src.r;
+        dst.g = dst.g + (1.0 - dst.a) * src.a * src.g;
+        dst.b = dst.b + (1.0 - dst.a) * src.a * src.b;
+        dst.a = dst.a + (1.0 - dst.a) * src.a;
+
+        accumColor = dst;
         
         t += stepSize;
     }
-    
     return accumColor;
 }
 
 
 @fragment
 fn main(input: FragmentInput) -> @location(0) vec4<f32> {
-    return raycastingVolumeRender(input);
+    return advancedVolumeRender(input);
 }
