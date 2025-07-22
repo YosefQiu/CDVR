@@ -42,6 +42,14 @@ void Application::MainLoop()
 {
 
 	glfwPollEvents();
+#ifndef __EMSCRIPTEN__
+    m_device.poll(true);
+#endif
+
+    int framebufferWidth, framebufferHeight;
+    glfwGetFramebufferSize(m_window, &framebufferWidth, &framebufferHeight);
+    m_width = framebufferWidth;
+    m_height = framebufferHeight;
 
     if (m_cameraController) 
     {
@@ -103,7 +111,7 @@ void Application::MainLoop()
     renderPassColorAttachment.storeOp = wgpu::StoreOp::Store;
 
     wgpu::Color clearColor;
-    clearColor = wgpu::Color{ 0.0, 0.0, 0.0, 1.0 };  // 蓝绿色背景（Compute）
+    clearColor = wgpu::Color{ 0.0, 0.0, 0.0, 0.0 };  //
 
     renderPassColorAttachment.clearValue = clearColor;
 

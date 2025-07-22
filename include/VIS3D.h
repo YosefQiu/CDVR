@@ -15,6 +15,10 @@ public:
         alignas(16) glm::mat4 viewMatrix = glm::mat4(1.0f);
         alignas(16) glm::mat4 projMatrix = glm::mat4(1.0f);
         alignas(16) glm::mat4 modelMatrix = glm::mat4(1.0f);
+        alignas(16) glm::mat4 invViewMatrix = glm::mat4(1.0f);
+        alignas(16) glm::mat4 invProjMatrix = glm::mat4(1.0f);
+        alignas(16) glm::mat4 invModelMatrix = glm::mat4(1.0f);
+        alignas(16) glm::vec3 cameraPosition = glm::vec3(0.0f, 0.0f, 5.0f);
     };
 
     struct CS_Uniforms 
@@ -63,7 +67,7 @@ public:
             const CS_Uniforms uniforms);
         bool CreatePipeline(wgpu::Device device);
         bool UpdateBindGroup(wgpu::Device device, wgpu::TextureView inputTF, wgpu::TextureView outputTexture);
-        void RunCompute(wgpu::Device device, wgpu::Queue queue);
+        void RunCompute(wgpu::Device device, wgpu::Queue queue, wgpu::Texture outputTexture);
         void Release();
     private:
         bool InitKDTreeBuffers(wgpu::Device device, wgpu::Queue queue, 

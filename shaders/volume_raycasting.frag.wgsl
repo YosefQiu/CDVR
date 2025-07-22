@@ -3,119 +3,80 @@ struct Uniforms {
     viewMatrix: mat4x4<f32>,
     projMatrix: mat4x4<f32>,
     modelMatrix: mat4x4<f32>,
+    invViewMatrix: mat4x4<f32>,
+    invProjMatrix: mat4x4<f32>,
+    invModelMatrix: mat4x4<f32>,
+    cameraPosition: vec3<f32>,
 };
 
 struct FragmentInput {
-    @location(0) worldPos: vec3<f32>,
-    @location(1) texCoord: vec3<f32>,
-    @location(2) localPos: vec3<f32>,
+    @location(0) texCoord: vec3<f32>,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var inputTexture: texture_3d<f32>;
 @group(0) @binding(2) var textureSampler: sampler;
 
-// 获取相机位置（从view matrix的逆矩阵中提取）
-fn getCameraPosition() -> vec3<f32> {
-    let invView = transpose(uniforms.viewMatrix);  // 简化的逆矩阵（假设只有旋转和平移）
-    return vec3<f32>(invView[3][0], invView[3][1], invView[3][2]);
+
+// 简化逆矩阵：仅适用于旋转 + 平移（无缩放）
+fn inverseViewMatrix() -> mat4x4<f32> {
+    return uniforms.invViewMatrix;
 }
 
-// 计算光线与立方体的交点
+fn inverseModelMatrix() -> mat4x4<f32> {
+    return uniforms.invModelMatrix;
+}
+
+// 从视图矩阵推算 camera 世界位置
+fn getCameraPosition() -> vec3<f32> {
+    let invView = inverseViewMatrix();
+    return vec3<f32>(invView[3].x, invView[3].y, invView[3].z);
+}
+
+// 从纹理坐标计算世界空间光线
+fn calculateWorldRay(texCoord: vec2<f32>) -> vec3<f32> {
+    // texCoord [0,1] -> NDC [-1,1]
+    let ndc = vec2<f32>(texCoord.x * 2.0 - 1.0, (1.0 - texCoord.y) * 2.0 - 1.0);
+    
+    // NDC -> 投影空间 -> 视图空间 -> 世界空间
+    let nearPoint = uniforms.invProjMatrix * vec4<f32>(ndc, -1.0, 1.0);
+    let farPoint = uniforms.invProjMatrix * vec4<f32>(ndc, 1.0, 1.0);
+    
+    let nearView = nearPoint.xyz / nearPoint.w;
+    let farView = farPoint.xyz / farPoint.w;
+    
+    let nearWorld = (uniforms.invViewMatrix * vec4<f32>(nearView, 1.0)).xyz;
+    let farWorld = (uniforms.invViewMatrix * vec4<f32>(farView, 1.0)).xyz;
+    
+    return normalize(farWorld - nearWorld);
+}
+
+// 光线与 unit cube 相交测试
 fn rayBoxIntersection(rayOrigin: vec3<f32>, rayDir: vec3<f32>) -> vec2<f32> {
     let boxMin = vec3<f32>(-0.5, -0.5, -0.5);
-    let boxMax = vec3<f32>(0.5, 0.5, 0.5);
-    
+    let boxMax = vec3<f32>( 0.5,  0.5,  0.5);
+
     let invDir = 1.0 / rayDir;
     let t1 = (boxMin - rayOrigin) * invDir;
     let t2 = (boxMax - rayOrigin) * invDir;
-    
-    let tMin = min(t1, t2);
-    let tMax = max(t1, t2);
-    
-    let tNear = max(max(tMin.x, tMin.y), tMin.z);
-    let tFar = min(min(tMax.x, tMax.y), tMax.z);
 
-    return vec2<f32>(max(tNear, 0.001), max(tFar, 0.001));
+    let tMin = max(max(min(t1.x, t2.x), min(t1.y, t2.y)), min(t1.z, t2.z));
+    let tMax = min(min(max(t1.x, t2.x), max(t1.y, t2.y)), max(t1.z, t2.z));
+
+    return vec2<f32>(tMin, tMax);
 }
 
 
-// Ray casting 体积渲染
-fn raycastingVolumeRender(input: FragmentInput) -> vec4<f32> {
-    // 计算光线方向
-    let cameraPos = getCameraPosition();
-    let rayDir = normalize(input.worldPos - cameraPos);
-    
-    // 将光线变换到局部坐标系
-    let invModel = transpose(uniforms.modelMatrix);  // 简化的逆矩阵
-    let localRayOrigin = (invModel * vec4<f32>(cameraPos, 1.0)).xyz;
-    let localRayDir = (invModel * vec4<f32>(rayDir, 0.0)).xyz;
-    
-    // 计算光线与立方体的交点
-    let intersection = rayBoxIntersection(localRayOrigin, normalize(localRayDir));
-    let tNear = intersection.x;
-    let tFar = intersection.y;
-    
-    if (tFar <= tNear) {
-        return vec4<f32>(0.0, 0.0, 0.0, 0.0);  // 没有交点
-    }
-    
-    // 设置采样参数
-    let stepSize = 0.001; 
-    let maxSteps = min(i32((tFar - tNear) / stepSize) + 1, 5000);  // 限制最大步数
-    
-    // 累积颜色
-    var accumColor = vec4<f32>(0.0);
-    var t = tNear;
-    
-    for (var i = 0; i < maxSteps; i++) {
-        if (accumColor.a > 0.99) {
-            break;  // 提前终止
-        }
-        
-        // 计算采样位置
-        let samplePos = localRayOrigin + t * normalize(localRayDir);
-        
-        // 转换到纹理坐标 [0,1]
-        let texCoord = samplePos + vec3<f32>(0.5);
-        
-        // 边界检查
-        if (any(texCoord < vec3<f32>(0.0)) || any(texCoord > vec3<f32>(1.0))) {
-            t += stepSize;
-            continue;
-        }
-        
-        // 采样体积数据
-        var sampleColor = textureSample(inputTexture, textureSampler, texCoord);
-
-        var dst :vec4<f32> = accumColor;
-        var src :vec4<f32> = sampleColor;
-        // Front to back
-        dst.r = dst.r + (1.0 - dst.a) * src.a * src.r;
-        dst.g = dst.g + (1.0 - dst.a) * src.a * src.g;
-        dst.b = dst.b + (1.0 - dst.a) * src.a * src.b;
-        dst.a = dst.a + (1.0 - dst.a) * src.a;
-
-        accumColor = dst;
-        
-        t += stepSize;
-        if (t > tFar) {
-            break;
-        }
-    }
-
-    return accumColor;
-}
 
 fn advancedVolumeRender(input: FragmentInput) -> vec4<f32> {
     // 计算光线方向
     let cameraPos = getCameraPosition();
-    let rayDir = normalize(input.worldPos - cameraPos);
+    let rayDirWorld = calculateWorldRay(input.texCoord.xy);
+
+    // 变换光线到立方体局部空间
+    let localRayOrigin = (uniforms.invModelMatrix * vec4<f32>(cameraPos, 1.0)).xyz;
+    let localRayDir = normalize((uniforms.invModelMatrix * vec4<f32>(rayDirWorld, 0.0)).xyz);
     
-    // 将光线变换到局部坐标系
-    let invModel = transpose(uniforms.modelMatrix);
-    let localRayOrigin = (invModel * vec4<f32>(cameraPos, 1.0)).xyz;
-    let localRayDir = (invModel * vec4<f32>(rayDir, 0.0)).xyz;
     
     // 计算光线与立方体的交点
     let intersection = rayBoxIntersection(localRayOrigin, normalize(localRayDir));
@@ -127,7 +88,7 @@ fn advancedVolumeRender(input: FragmentInput) -> vec4<f32> {
     }
     
     // 设置采样参数
-    let stepSize = 0.0001;  // 更小的步长，更好的质量
+    let stepSize =  0.005;  // 更小的步长，更好的质量
     let maxSteps = i32((tFar - tNear) / stepSize) + 1;
     
     // 光照设置
@@ -190,5 +151,6 @@ fn advancedVolumeRender(input: FragmentInput) -> vec4<f32> {
 
 @fragment
 fn main(input: FragmentInput) -> @location(0) vec4<f32> {
+    
     return advancedVolumeRender(input);
 }

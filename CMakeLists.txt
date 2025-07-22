@@ -26,6 +26,8 @@ FILE(GLOB PROJECT_HEADERS include/*.h include/*.hpp)
 FILE(GLOB PROJECT_SOURCES src/*.cpp)
 
 file(COPY ${CMAKE_SOURCE_DIR}/pruned_simple_data.bin DESTINATION ${CMAKE_BINARY_DIR})
+file(COPY ${CMAKE_SOURCE_DIR}/data16.raw DESTINATION ${CMAKE_BINARY_DIR})
+file(COPY ${CMAKE_SOURCE_DIR}/data.raw DESTINATION ${CMAKE_BINARY_DIR})
 file(COPY ${CMAKE_SOURCE_DIR}/shaders                 DESTINATION ${CMAKE_BINARY_DIR})
 
 SOURCE_GROUP("Headers" FILES ${PROJECT_HEADERS})
@@ -58,7 +60,8 @@ else()
         -Wunused-variable     
         -Wno-unused-parameter 
 		-Wno-deprecated-declarations
-        -Wdelete-non-abstract-non-virtual-dtor 
+        -Wdelete-non-virtual-dtor
+		-Wunused-but-set-variable
     ) 
 endif()
 

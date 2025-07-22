@@ -1,9 +1,9 @@
 #include "VIS3D.h"
 #include "KDTreeWrapper.h"
 #include "PipelineManager.h"
-#include <cstddef>
-#include <vector>
-
+#include "stb_image_write.h"
+#include <future>
+#include <thread>
 
 VIS3D::VIS3D(wgpu::Device device, wgpu::Queue queue, wgpu::TextureFormat swapChainFormat)
     : m_device(device), m_queue(queue), m_swapChainFormat(swapChainFormat) {
@@ -31,13 +31,13 @@ bool VIS3D::Initialize(glm::mat4 vMat, glm::mat4 pMat)
 {
     std::cout << "[VIS3D] Initializing Transfer Function 3D Test..." << std::endl;
 
-    if (!InitDataFromBinary("./data16.raw")) return false;
+    if (!InitDataFromBinary("./data.raw")) return false;
     
     m_RS_Uniforms.viewMatrix = vMat;
     m_RS_Uniforms.projMatrix = pMat;
     m_RS_Uniforms.modelMatrix = glm::mat4(1.0f);
 
-    if (!InitOutputTexture(16, 16, 16)) return false;
+    if (!InitOutputTexture(16, 16, 16, wgpu::TextureFormat::RGBA16Float)) return false;
     if (!m_computeStage.Init(m_device, m_queue, m_sparsePoints, m_KDTreeData, m_CS_Uniforms)) return false;
     if (!m_renderStage.Init(m_device, m_queue, m_RS_Uniforms, m_header.width, m_header.height, m_header.depth)) return false;
     if (!m_renderStage.CreatePipeline(m_device, m_swapChainFormat)) return false;
@@ -57,7 +57,7 @@ bool VIS3D::InitDataFromBinary(const std::string& filename)
         return false;
     }
 
-    int data_size = 16;
+    int data_size = 64;
 
     // 读取头部信息 (3D)
     DataHeader header3D;
@@ -255,7 +255,7 @@ void VIS3D::UpdateSSBO(wgpu::TextureView tfTextureView)
     if (m_needsUpdate && m_computeStage.TF_bindGroup && m_computeStage.pipeline) 
     {
         m_needsUpdate = false;
-        m_computeStage.RunCompute(m_device, m_queue);
+        m_computeStage.RunCompute(m_device, m_queue, m_outputTexture);
         
         #if defined(WEBGPU_BACKEND_DAWN)
         for (int i = 0; i < 10; ++i) {
@@ -275,8 +275,9 @@ bool VIS3D::InitOutputTexture(uint32_t width, uint32_t height, uint32_t depth, w
     outputTextureDesc.dimension = wgpu::TextureDimension::_3D;
     outputTextureDesc.size = {width, height, depth};
     outputTextureDesc.format = format;
-    outputTextureDesc.usage = wgpu::TextureUsage::StorageBinding |     // 计算着色器写入
-                              wgpu::TextureUsage::TextureBinding;      // 渲染着色器读取
+    outputTextureDesc.usage = wgpu::TextureUsage::StorageBinding |      // 计算着色器写入
+                              wgpu::TextureUsage::TextureBinding |      // 渲染着色器读取
+                              wgpu::TextureUsage::CopySrc;      
     outputTextureDesc.mipLevelCount = 1;
     outputTextureDesc.sampleCount = 1;
     outputTextureDesc.viewFormatCount = 0;
@@ -311,6 +312,10 @@ void VIS3D::UpdateUniforms(glm::mat4 viewMatrix, glm::mat4 projMatrix)
 {
     m_RS_Uniforms.viewMatrix = viewMatrix;
     m_RS_Uniforms.projMatrix = projMatrix;
+    m_RS_Uniforms.invViewMatrix = glm::inverse(viewMatrix);
+    m_RS_Uniforms.invProjMatrix = glm::inverse(projMatrix);
+    m_RS_Uniforms.invModelMatrix = glm::inverse(m_RS_Uniforms.modelMatrix);
+    m_RS_Uniforms.cameraPosition = glm::vec3(viewMatrix[3]);
     
     m_renderStage.UpdateUniforms(m_queue, m_RS_Uniforms);
 }
@@ -578,7 +583,7 @@ bool VIS3D::ComputeStage::UpdateBindGroup(wgpu::Device device, wgpu::TextureView
     return true;
 }
 
-void VIS3D::ComputeStage::RunCompute(wgpu::Device device, wgpu::Queue queue) 
+void VIS3D::ComputeStage::RunCompute(wgpu::Device device, wgpu::Queue queue, wgpu::Texture outputTexture) 
 {
     if (!data_bindGroup || !TF_bindGroup || !KDTree_bindGroup || !pipeline) return;
 
@@ -594,7 +599,7 @@ void VIS3D::ComputeStage::RunCompute(wgpu::Device device, wgpu::Queue queue)
     computePass.setBindGroup(0, data_bindGroup, 0, nullptr);
     computePass.setBindGroup(1, TF_bindGroup, 0, nullptr); 
     computePass.setBindGroup(2, KDTree_bindGroup, 0, nullptr);
-    computePass.dispatchWorkgroups((128 + 3) / 4, (128 + 3) / 4, (128 + 3) / 4);
+    computePass.dispatchWorkgroups(4, 4, 4);
     
     computePass.end();
     computePass.release();
@@ -606,6 +611,98 @@ void VIS3D::ComputeStage::RunCompute(wgpu::Device device, wgpu::Queue queue)
     
     queue.submit(1, &commandBuffer);
     commandBuffer.release();
+    // std::cout << "[VIS3D] Compute pass submitted successfully" << std::endl;
+
+    // // **关键：等待 GPU 完成计算**
+    // #if defined(WEBGPU_BACKEND_DAWN)
+    // for (int i = 0; i < 100; ++i) {
+    //     device.tick();
+    // }
+    // #elif defined(WEBGPU_BACKEND_WGPU)
+    // device.poll(true);
+    // #endif
+    // std::cout << "[VIS3D] Compute pass completed" << std::endl;
+
+    // // for debugging: save output texture to file
+    // // ===== Dump z=8 slice to PNG =====
+    // uint32_t width = 16, height = 16;
+    // uint32_t sliceZ = 8;
+
+    // // 1. 创建 CPU 可读 Buffer（直接从3D纹理拷贝）
+    // uint32_t pixelSize = 8; // RGBA16Float = 8 bytes
+    // uint32_t rowPitch = ((width * pixelSize + 255) & ~255);
+    // uint32_t bufferSize = rowPitch * height;
+
+    // wgpu::BufferDescriptor bufDesc = {};
+    // bufDesc.size = bufferSize;
+    // bufDesc.usage = wgpu::BufferUsage::CopyDst | wgpu::BufferUsage::MapRead;
+    // wgpu::Buffer readBuffer = device.createBuffer(bufDesc);
+
+    // // 2. 直接从3D纹理拷贝特定切片到Buffer
+    // wgpu::CommandEncoderDescriptor copyEncoderDesc = {};
+    // wgpu::CommandEncoder copyEncoder = device.createCommandEncoder(copyEncoderDesc);
+
+    // wgpu::ImageCopyTexture src = {};
+    // src.texture = outputTexture;
+    // src.mipLevel = 0;
+    // src.origin = {0, 0, sliceZ};
+    // src.aspect = wgpu::TextureAspect::All;
+
+    // wgpu::ImageCopyBuffer dst = {};
+    // dst.buffer = readBuffer;
+    // dst.layout.offset = 0;
+    // dst.layout.bytesPerRow = rowPitch;
+    // dst.layout.rowsPerImage = height;
+
+    // copyEncoder.copyTextureToBuffer(src, dst, {width, height, 1});
+
+    // wgpu::CommandBuffer copyCmd = copyEncoder.finish();
+    // queue.submit(1, &copyCmd);
+    // copyCmd.release();
+    // copyEncoder.release();
+
+    // // **关键：再次等待拷贝完成**
+    // #if defined(WEBGPU_BACKEND_DAWN)
+    // for (int i = 0; i < 100; ++i) {
+    //     device.tick();
+    // }
+    // #elif defined(WEBGPU_BACKEND_WGPU)
+    // device.poll(true);
+    // #endif
+    // std::this_thread::sleep_for(std::chrono::milliseconds(10000));
+
+    // if (1) {
+    //     const void* raw = readBuffer.getConstMappedRange(0, bufferSize);
+    //     if (raw) {
+    //         // 转换并保存PNG
+    //         std::vector<uint8_t> imageRGBA(width * height * 4);
+            
+    //         for (uint32_t y = 0; y < height; ++y) {
+    //             const uint16_t* rowPtr = reinterpret_cast<const uint16_t*>((const uint8_t*)raw + y * rowPitch);
+    //             for (uint32_t x = 0; x < width; ++x) {
+    //                 const uint16_t* px = &rowPtr[x * 4];
+                    
+    //                 size_t idx = (y * width + x) * 4;
+    //                 // 简单转换 float16 到 uint8
+    //                 imageRGBA[idx + 0] = static_cast<uint8_t>((px[0] >> 8) & 0xFF);
+    //                 imageRGBA[idx + 1] = static_cast<uint8_t>((px[1] >> 8) & 0xFF);
+    //                 imageRGBA[idx + 2] = static_cast<uint8_t>((px[2] >> 8) & 0xFF);
+    //                 imageRGBA[idx + 3] = 255; // Alpha
+    //             }
+    //         }
+            
+    //         stbi_write_png("slice_z8.png", width, height, 4, imageRGBA.data(), width * 4);
+    //         std::cout << "[DEBUG] Saved slice_z8.png" << std::endl;
+    //     }
+    //     readBuffer.unmap();
+    // }
+
+    // readBuffer.release();
+    // exit(1);
+
+
+
+
 }
 
 void VIS3D::ComputeStage::Release() 
@@ -654,16 +751,10 @@ bool VIS3D::RenderStage::InitVBO(wgpu::Device device, wgpu::Queue queue, float d
 {
     // 立方体顶点数据 (位置 + 3D纹理坐标)
     float vertices[] = {
-        // 前面 (z = 0.5)
-        -0.5f, -0.5f,  0.5f,  0.0f, 0.0f, 1.0f,
-         0.5f, -0.5f,  0.5f,  1.0f, 0.0f, 1.0f,
-         0.5f,  0.5f,  0.5f,  1.0f, 1.0f, 1.0f,
-        -0.5f,  0.5f,  0.5f,  0.0f, 1.0f, 1.0f,
-        // 后面 (z = -0.5)
-        -0.5f, -0.5f, -0.5f,  0.0f, 0.0f, 0.0f,
-         0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 0.0f,
-         0.5f,  0.5f, -0.5f,  1.0f, 1.0f, 0.0f,
-        -0.5f,  0.5f, -0.5f,  0.0f, 1.0f, 0.0f,
+        -1.0f, -1.0f, 0.5f,  0.0f, 0.0f, 0.5f,  // 左下
+         1.0f, -1.0f, 0.5f,  1.0f, 0.0f, 0.5f,  // 右下
+         1.0f,  1.0f, 0.5f,  1.0f, 1.0f, 0.5f,  // 右上
+        -1.0f,  1.0f, 0.5f,  0.0f, 1.0f, 0.5f,  // 左上
     };
     
     
@@ -689,18 +780,8 @@ bool VIS3D::RenderStage::InitEBO(wgpu::Device device, wgpu::Queue queue)
 {
     // 立方体索引数据 (12个三角形，36个顶点)
     uint16_t indices[] = {
-        // 前面
-        0, 1, 2,  2, 3, 0,
-        // 后面
-        4, 6, 5,  6, 4, 7,
-        // 左面
-        4, 0, 3,  3, 7, 4,
-        // 右面
-        1, 5, 6,  6, 2, 1,
-        // 上面
-        3, 2, 6,  6, 7, 3,
-        // 下面
-        4, 5, 1,  1, 0, 4,
+        0, 1, 2,
+        2, 3, 0
     };
     
     indexCount = sizeof(indices) / sizeof(uint16_t);

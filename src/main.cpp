@@ -13,7 +13,11 @@ int main()
 	
 
     try {
-        if (!app.OnInit(1280, 760, "LearnWebGPU")) {
+#ifdef __GNUC__
+        if (!app.OnInit(1280 * 2, 760 * 2, "LearnWebGPU")) {
+#elif defined(__APPLE__)
+		if (!app.OnInit(1280, 760, "LearnWebGPU")) {
+#endif
             throw std::runtime_error("Failed to initialize application.");
         }
     }

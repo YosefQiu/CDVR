@@ -51,7 +51,7 @@ struct GPUPoint3D {
 
 fn getColorFromTF(normalizedValue: f32) -> vec4<f32> {
     let tfWidth = textureDimensions(inputTF).x;
-    let texelX = clamp(i32(normalizedValue * f32(tfWidth)), 0, i32(tfWidth) - 1);
+    let texelX = clamp(i32(normalizedValue * f32(tfWidth - 1)), 0, i32(tfWidth - 1));
     let texelCoord = vec2<i32>(texelX, 0);
     return textureLoad(inputTF, texelCoord, 0);
 }
@@ -429,19 +429,8 @@ fn interpolateValue2(pos: vec3<f32>) -> f32 {
     let yi = clamp(i32(pos.y), 0, i32(uniforms.gridHeight) - 1);
     let zi = clamp(i32(pos.z), 0, i32(uniforms.gridDepth) - 1);
 
-    let xf = f32(xi);
-    let yf = f32(yi);
-    let zf = f32(zi);
-
-    for (var i = 0u; i < uniforms.totalPoints; i++) {
-        let p = sparsePoints[i];
-        if (abs(p.x - xf) < 0.01 && abs(p.y - yf) < 0.01 && abs(p.z - zf) < 0.01) {
-            return p.value;
-        }
-    }
-
-
-    return -1.0;
+    let flat_idx = zi * i32(uniforms.gridWidth) * i32(uniforms.gridHeight) + yi * i32(uniforms.gridWidth) + xi;
+    return sparsePoints[flat_idx].value;
 }
 
 // ============ Main Compute Shader ============
@@ -492,4 +481,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // }
 
     textureStore(outputTexture, vec3<i32>(global_id.xyz), color);
+
+    
 }
